@@ -1,0 +1,77 @@
+# TruthLens AI — Python dependencies
+# ─────────────────────────────────────────────────────────────
+# Stage 1: Streamlit UI scaffold
+streamlit>=1.35.0
+
+# Stage 2: Voice recording + Speech-to-Text
+#
+# audio-recorder-streamlit
+#   Browser microphone recording component for Streamlit.
+#   Returns raw audio bytes from the user's browser mic.
+audio-recorder-streamlit>=0.0.8
+
+# openai-whisper
+#   Local speech-to-text using OpenAI's Whisper model.
+#   Runs entirely on-device — no API key required.
+#   NOTE: This will also install PyTorch (~700 MB) on first install.
+#   NOTE: ffmpeg must be installed separately on your system.
+#     Windows : winget install ffmpeg  OR  choco install ffmpeg
+#     macOS   : brew install ffmpeg
+#     Linux   : sudo apt install ffmpeg
+openai-whisper>=20231117
+
+# numpy — required by Whisper's audio processing pipeline
+numpy>=1.24.0
+
+# Stage 3: AI Story Understanding / Structured Event Extraction
+#
+# python-dotenv
+#   Loads environment variables from a .env file automatically.
+#   Required to configure the LLM provider without hardcoding keys.
+python-dotenv>=1.0.0
+
+# google-generativeai
+#   Official Python SDK for Google Gemini (default LLM provider).
+#   Install this if using LLM_PROVIDER=gemini (default).
+google-generativeai>=0.8.0
+
+# openai
+#   Official Python SDK for OpenAI GPT models.
+#   Only needed if using LLM_PROVIDER=openai.
+openai>=1.0.0
+
+# requests
+#   HTTP library used to call the local Ollama API.
+#   Only needed if using LLM_PROVIDER=ollama.
+requests>=2.31.0
+
+# Stage 6: Voice/Speech Behavioral Signals
+#
+# librosa
+#   Digital signal processing library for pitch, energy, and pause extraction.
+librosa>=0.10.0
+
+# Stage 7: Visual Behavioral Signals
+#
+# opencv-python-headless
+#   Required for reading video files on CPU. Headless avoids Streamlit GUI conflicts.
+opencv-python-headless>=4.8.0
+# mediapipe
+#   CPU-optimized FaceMesh tracking for blink and head movement detection.
+mediapipe==0.10.14
+
+# Stage 12: PDF Reporting
+fpdf2>=2.8.0
+
+# Dependency Conflict Resolution
+# Prevents pip from installing streamlit >= 1.64.0 and google-api-core >= 2.33.0 
+# which strictly require protobuf >= 5, conflicting with mediapipe == 0.10.14.
+protobuf<5
+
+# Live Camera WebRTC Recording (app.py)
+streamlit-webrtc>=0.47.0
+aiortc>=1.8.0
+
+# Cloud Transcription Fallback (app.py)
+groq>=0.9.0
+

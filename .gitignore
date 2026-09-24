@@ -1,0 +1,65 @@
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# ── Virtual environments ────────────────────────────────────────────────────────
+venv/
+venv2/
+.venv/
+env/
+.env/
+
+# ── Environment variables ───────────────────────────────────────────────────────
+.env
+*.env
+
+# ── Streamlit ───────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Jupyter ─────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── OS files ────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ────────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Audio recordings (Stage 2) ─────────────────────────────────────────────────
+# Ignore actual recording files but keep the placeholder
+audio/*.wav
+audio/*.mp3
+audio/*.mp4
+audio/*.avi
+# Keep other media patterns for future stages
+recordings/
+*.mp4
+
+# ── Video recordings (Stage 7) ─────────────────────────────────────────────────
+video/
+*.webm
+*.mov
+
+# ── Whisper model cache ─────────────────────────────────────────────────────────
+# Whisper downloads models to ~/.cache/whisper — nothing to ignore here,
+# but if you cache locally add the path below.
+# whisper_models/
+
+# ── Logs ────────────────────────────────────────────────────────────────────────
+*.log
+logs/
+debug_log.txt
+scratch/*.log
