@@ -584,7 +584,8 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
             file_name=f"TruthLens_Performance_Report_{person_id}.pdf",
             mime="application/pdf",
             type="primary",
-            use_container_width=True
+            use_container_width=True,
+            key=f"dl_pdf_{person_id}"
         )
 
 
@@ -684,7 +685,7 @@ def render_comparison_view(comp: Dict[str, Any], label_a: str = "Video A", label
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def render_feature_live_camera(active_context_key: str) -> None:
-    st.title("🎥 Live Camera Analysis")
+    st.title("🎥 Live Camera Recording")
     st.caption("Record yourself speaking naturally, analyze communication signals, and receive evidence-based improvement feedback.")
 
     person_id = "live"
@@ -837,7 +838,7 @@ def render_feature_upload_video(active_context_key: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def render_feature_compare_videos(active_context_key: str) -> None:
-    st.title("⚖️ Compare Videos")
+    st.title("⚖️ Compare & Assess")
     st.caption("Analyze two recordings independently and compare measured communication signals side-by-side.")
 
     col_a, col_b = st.columns(2)
@@ -875,10 +876,12 @@ def render_feature_compare_videos(active_context_key: str) -> None:
                 if st.button("▶️ Analyze Video A", type="primary", use_container_width=True, key="btn_run_a"):
                     run_pipeline("a", "Video A", context_key=active_context_key)
 
-            # Concise Video A summary badge if analyzed
+            # Concise Video A summary badge and individual results breakdown
             if st.session_state.get("evaluation_data_a"):
                 sc_a, _ = calculate_analysis_coverage("a")
                 st.success(f"✓ Video A Analyzed (Coverage: {sc_a}/100)")
+                with st.expander("📊 View Video A Individual Assessment", expanded=False):
+                    render_individual_analysis("a", "Video A")
 
     # ── VIDEO B PANEL ────────────────────────────────────────────────────────
     with col_b:
@@ -913,10 +916,12 @@ def render_feature_compare_videos(active_context_key: str) -> None:
                 if st.button("▶️ Analyze Video B", type="primary", use_container_width=True, key="btn_run_b"):
                     run_pipeline("b", "Video B", context_key=active_context_key)
 
-            # Concise Video B summary badge if analyzed
+            # Concise Video B summary badge and individual results breakdown
             if st.session_state.get("evaluation_data_b"):
                 sc_b, _ = calculate_analysis_coverage("b")
                 st.success(f"✓ Video B Analyzed (Coverage: {sc_b}/100)")
+                with st.expander("📊 View Video B Individual Assessment", expanded=False):
+                    render_individual_analysis("b", "Video B")
 
     # ── COMPARISON TRIGGER & DISPLAY ─────────────────────────────────────────
     st.markdown("---")
@@ -958,7 +963,7 @@ def main():
     st.sidebar.title("TruthLens")
     feature_mode = st.sidebar.radio(
         "Select Feature:",
-        ["🎥 Live Camera", "📁 Upload Video", "⚖️ Compare Videos"],
+        ["🎥 Live Camera Recording", "⚖️ Compare & Assess"],
         key="sidebar_primary_nav"
     )
 
@@ -997,11 +1002,9 @@ def main():
         st.rerun()
 
     # ── Feature Routing ────────────────────────────────────────────────────────
-    if feature_mode == "🎥 Live Camera":
+    if feature_mode == "🎥 Live Camera Recording":
         render_feature_live_camera(active_context_key)
-    elif feature_mode == "📁 Upload Video":
-        render_feature_upload_video(active_context_key)
-    elif feature_mode == "⚖️ Compare Videos":
+    elif feature_mode == "⚖️ Compare & Assess":
         render_feature_compare_videos(active_context_key)
 
 
