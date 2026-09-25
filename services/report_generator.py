@@ -61,7 +61,8 @@ def generate_evidence_report(
     speech_a: Optional[dict] = None,
     speech_b: Optional[dict] = None,
     visual_a: Optional[dict] = None,
-    visual_b: Optional[dict] = None
+    visual_b: Optional[dict] = None,
+    multimodal_comparison: Optional[dict] = None
 ) -> bytes:
     """
     Generate a deterministic, highly structured PDF report from application state.
@@ -104,8 +105,27 @@ def generate_evidence_report(
         comparison_result = {}
 
     overall = comparison_result.get("overall_status", "UNKNOWN").upper()
-    body(f"Overall Status: {overall}", bold=True)
-    pdf.ln(5)
+    body(f"Overall Information Status: {overall}", bold=True)
+    pdf.ln(3)
+
+    # Multimodal Comparative Performance (if available)
+    if multimodal_comparison:
+        title("Comparative Performance Assessment")
+        if multimodal_comparison.get("outcome_badge"):
+            body(multimodal_comparison["outcome_badge"], bold=True)
+        if multimodal_comparison.get("explanation"):
+            body(multimodal_comparison["explanation"])
+        pdf.ln(3)
+        if multimodal_comparison.get("metric_deltas"):
+            section("Measured Communication Deltas")
+            for delta in multimodal_comparison["metric_deltas"]:
+                bullet(f"{delta.get('metric')}: {person_a_label}={delta.get('val_a')} | {person_b_label}={delta.get('val_b')} (Delta: {delta.get('delta')})")
+            pdf.ln(3)
+        if multimodal_comparison.get("category_comparisons"):
+            section("Performance Category Breakdown")
+            for c in multimodal_comparison["category_comparisons"]:
+                bullet(f"{c.get('category')}: {person_a_label}={c.get('score_a')} | {person_b_label}={c.get('score_b')} (Delta: {c.get('delta')}) - {c.get('status')}")
+            pdf.ln(5)
 
     # 2. Overall Statistics
     title("2. Overall Statistics")
