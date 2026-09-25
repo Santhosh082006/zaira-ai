@@ -12,7 +12,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sys
+import uuid
 from typing import Optional, Dict, Any, List
 
 import streamlit as st
@@ -66,6 +68,26 @@ def get_whisper_model():
 # ═══════════════════════════════════════════════════════════════════════════════
 # STATE MANAGEMENT & ISOLATION HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def init_session_lifecycle() -> str:
+    """
+    Initialize clean session state for a new browser session without affecting normal reruns.
+    Ensures that a new session starts with no stale recordings, inputs, or analyses.
+    """
+    if "_session_id" not in st.session_state:
+        session_id = uuid.uuid4().hex[:12]
+        st.session_state["_session_id"] = session_id
+        for pid in ["live", "upload", "a", "b"]:
+            st.session_state[f"video_path_{pid}"] = None
+            st.session_state[f"media_hash_{pid}"] = None
+            st.session_state[f"live_mtime_{pid}"] = 0.0
+            reset_person_downstream(pid)
+        st.session_state["comparison_result"] = None
+        st.session_state["multimodal_comparison"] = None
+        st.session_state["_live_was_recording"] = False
+        st.session_state["live_recorded_this_session"] = False
+    return st.session_state["_session_id"]
+
 
 def reset_person_downstream(person_id: str) -> None:
     """Invalidate all downstream analysis artifacts for a specific person/slot."""
@@ -691,7 +713,8 @@ def render_feature_live_camera(active_context_key: str) -> None:
     person_id = "live"
     person_label = "Live Performer"
     video_path_key = f"video_path_{person_id}"
-    live_video_path = os.path.join(VIDEO_DIR, f"live_recording_{person_id}.mp4")
+    session_id = st.session_state.get("_session_id", "default")
+    live_video_path = os.path.join(VIDEO_DIR, f"live_session_{session_id}.mp4")
 
     ctx = None
     c1, c2 = st.columns([1, 1])
@@ -708,7 +731,7 @@ def render_feature_live_camera(active_context_key: str) -> None:
                 {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
             )
             ctx = webrtc_streamer(
-                key="live_camera_capture",
+                key=f"live_camera_capture_{session_id}",
                 mode=WebRtcMode.SENDONLY,
                 rtc_configuration=rtc_config,
                 in_recorder_factory=create_recorder,
@@ -716,6 +739,7 @@ def render_feature_live_camera(active_context_key: str) -> None:
             )
 
             if ctx and ctx.state.playing:
+                st.session_state["_live_was_recording"] = True
                 st.info("🔴 Recording Active... Speak clearly into your microphone.")
         except Exception as e:
             st.warning(f"Live camera recording component: {e}. You can also use pre-recorded samples.")
@@ -732,29 +756,29 @@ def render_feature_live_camera(active_context_key: str) -> None:
         if os.path.exists(sample_path):
             with st.expander("⚡ Load Pre-Recorded Live Test Sample"):
                 if st.button("Use Sample Video for Live Camera", key="btn_use_sample_live"):
-                    import shutil
                     shutil.copyfile(sample_path, live_video_path)
+                    with open(live_video_path, "rb") as f:
+                        curr_hash = hashlib.sha256(f.read()).hexdigest()
                     st.session_state[f"live_mtime_{person_id}"] = os.path.getmtime(live_video_path)
+                    st.session_state[f"media_hash_{person_id}"] = curr_hash
                     st.session_state[video_path_key] = live_video_path
+                    st.session_state["live_recorded_this_session"] = True
                     reset_person_downstream(person_id)
                     st.success("Sample loaded for live analysis.")
                     st.rerun()
 
-    # Detect new or existing live video file
-    if os.path.exists(live_video_path) and os.path.getsize(live_video_path) > 0:
-        current_mtime = os.path.getmtime(live_video_path)
-        prev_mtime = st.session_state.get(f"live_mtime_{person_id}", 0)
-
-        with open(live_video_path, "rb") as f:
-            curr_hash = hashlib.sha256(f.read()).hexdigest()
-
-        if current_mtime > prev_mtime + 0.5 and st.session_state.get(f"media_hash_{person_id}") != curr_hash:
-            st.session_state[f"live_mtime_{person_id}"] = current_mtime
+    # Detect when live recording finishes (recorder was playing, now stopped)
+    if st.session_state.get("_live_was_recording") and (not ctx or not ctx.state.playing):
+        st.session_state["_live_was_recording"] = False
+        if os.path.exists(live_video_path) and os.path.getsize(live_video_path) > 0:
+            with open(live_video_path, "rb") as f:
+                curr_hash = hashlib.sha256(f.read()).hexdigest()
             st.session_state[f"media_hash_{person_id}"] = curr_hash
+            st.session_state[f"live_mtime_{person_id}"] = os.path.getmtime(live_video_path)
             st.session_state[video_path_key] = live_video_path
+            st.session_state["live_recorded_this_session"] = True
             reset_person_downstream(person_id)
-        elif not st.session_state.get(video_path_key):
-            st.session_state[video_path_key] = live_video_path
+            st.rerun()
 
     # Action panel when recording is available
     if st.session_state.get(video_path_key) and os.path.exists(st.session_state[video_path_key]):
@@ -783,11 +807,12 @@ def render_feature_upload_video(active_context_key: str) -> None:
     person_id = "upload"
     person_label = "Uploaded Video"
     video_path_key = f"video_path_{person_id}"
+    session_id = st.session_state.get("_session_id", "default")
 
     uploaded_file = st.file_uploader(
         "Select video file (MP4, WebM, MOV):",
         type=["mp4", "webm", "mov"],
-        key="uploader_upload_feature"
+        key=f"uploader_upload_feature_{session_id}"
     )
 
     if uploaded_file:
@@ -796,7 +821,7 @@ def render_feature_upload_video(active_context_key: str) -> None:
 
         if st.session_state.get(f"media_hash_{person_id}") != file_hash:
             st.session_state[f"media_hash_{person_id}"] = file_hash
-            save_path = os.path.join(VIDEO_DIR, "session_uploaded_performer.mp4")
+            save_path = os.path.join(VIDEO_DIR, f"session_uploaded_{session_id}.mp4")
             with open(save_path, "wb") as f:
                 f.write(buffer)
             st.session_state[video_path_key] = save_path
@@ -841,6 +866,7 @@ def render_feature_compare_videos(active_context_key: str) -> None:
     st.title("⚖️ Compare & Assess")
     st.caption("Analyze two recordings independently and compare measured communication signals side-by-side.")
 
+    session_id = st.session_state.get("_session_id", "default")
     col_a, col_b = st.columns(2)
 
     # ── VIDEO A PANEL ────────────────────────────────────────────────────────
@@ -848,13 +874,13 @@ def render_feature_compare_videos(active_context_key: str) -> None:
         with st.container(border=True):
             st.subheader("📹 Video A")
             video_a_key = "video_path_a"
-            upload_a = st.file_uploader("Upload Video A:", type=["mp4", "webm", "mov"], key="upload_comp_a")
+            upload_a = st.file_uploader("Upload Video A:", type=["mp4", "webm", "mov"], key=f"upload_comp_a_{session_id}")
             if upload_a:
                 buf_a = upload_a.getbuffer()
                 hash_a = hashlib.sha256(buf_a).hexdigest()
                 if st.session_state.get("media_hash_a") != hash_a:
                     st.session_state["media_hash_a"] = hash_a
-                    path_a = os.path.join(VIDEO_DIR, "compare_video_a.mp4")
+                    path_a = os.path.join(VIDEO_DIR, f"compare_video_a_{session_id}.mp4")
                     with open(path_a, "wb") as f:
                         f.write(buf_a)
                     st.session_state[video_a_key] = path_a
@@ -867,7 +893,9 @@ def render_feature_compare_videos(active_context_key: str) -> None:
                 if st.button("⚡ Use Sample Video A (test_video_a.mp4)", key="btn_sample_comp_a"):
                     with open(test_a_path, "rb") as f:
                         st.session_state["media_hash_a"] = hashlib.sha256(f.read()).hexdigest()
-                    st.session_state[video_a_key] = test_a_path
+                    path_a = os.path.join(VIDEO_DIR, f"compare_video_a_{session_id}.mp4")
+                    shutil.copyfile(test_a_path, path_a)
+                    st.session_state[video_a_key] = path_a
                     reset_person_downstream("a")
                     st.rerun()
 
@@ -888,13 +916,13 @@ def render_feature_compare_videos(active_context_key: str) -> None:
         with st.container(border=True):
             st.subheader("📹 Video B")
             video_b_key = "video_path_b"
-            upload_b = st.file_uploader("Upload Video B:", type=["mp4", "webm", "mov"], key="upload_comp_b")
+            upload_b = st.file_uploader("Upload Video B:", type=["mp4", "webm", "mov"], key=f"upload_comp_b_{session_id}")
             if upload_b:
                 buf_b = upload_b.getbuffer()
                 hash_b = hashlib.sha256(buf_b).hexdigest()
                 if st.session_state.get("media_hash_b") != hash_b:
                     st.session_state["media_hash_b"] = hash_b
-                    path_b = os.path.join(VIDEO_DIR, "compare_video_b.mp4")
+                    path_b = os.path.join(VIDEO_DIR, f"compare_video_b_{session_id}.mp4")
                     with open(path_b, "wb") as f:
                         f.write(buf_b)
                     st.session_state[video_b_key] = path_b
@@ -907,7 +935,9 @@ def render_feature_compare_videos(active_context_key: str) -> None:
                 if st.button("⚡ Use Sample Video B (test_video_b.mp4)", key="btn_sample_comp_b"):
                     with open(test_b_path, "rb") as f:
                         st.session_state["media_hash_b"] = hashlib.sha256(f.read()).hexdigest()
-                    st.session_state[video_b_key] = test_b_path
+                    path_b = os.path.join(VIDEO_DIR, f"compare_video_b_{session_id}.mp4")
+                    shutil.copyfile(test_b_path, path_b)
+                    st.session_state[video_b_key] = path_b
                     reset_person_downstream("b")
                     st.rerun()
 
@@ -959,6 +989,8 @@ def render_feature_compare_videos(active_context_key: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    init_session_lifecycle()
+
     # ── Sidebar Navigation & Context ───────────────────────────────────────────
     st.sidebar.title("TruthLens")
     feature_mode = st.sidebar.radio(
@@ -993,12 +1025,16 @@ def main():
     # Reset entire session action
     st.sidebar.markdown("---")
     if st.sidebar.button("🔄 Reset Analysis Session", use_container_width=True):
+        st.session_state["_session_id"] = uuid.uuid4().hex[:12]
         for pid in ["live", "upload", "a", "b"]:
             reset_person_downstream(pid)
             st.session_state[f"video_path_{pid}"] = None
             st.session_state[f"media_hash_{pid}"] = None
+            st.session_state[f"live_mtime_{pid}"] = 0.0
         st.session_state["comparison_result"] = None
         st.session_state["multimodal_comparison"] = None
+        st.session_state["_live_was_recording"] = False
+        st.session_state["live_recorded_this_session"] = False
         st.rerun()
 
     # ── Feature Routing ────────────────────────────────────────────────────────
