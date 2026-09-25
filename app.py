@@ -347,8 +347,8 @@ def render_comparison(comparison: dict, person_a_label: str = "Person A", person
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_speech_observations(feats):
-    if not feats or feats.get("reliability_flag") == "analysis_error":
-        return ["Speech analysis unavailable for this audio."]
+    if not feats or feats.get("duration_seconds") is None or feats.get("reliability_flag") != "good":
+        return ["Speech audio unmeasured or acoustic features unavailable for this recording."]
     obs = []
     wpm = feats.get("speaking_rate_wpm")
     if wpm is not None:
@@ -359,7 +359,7 @@ def get_speech_observations(feats):
     fillers = feats.get("filler_word_count")
     if fillers is not None:
         if fillers == 0: obs.append("Very few filler words were detected, suggesting relatively clean verbal delivery.")
-        elif fillers > 10: obs.append("Frequent filler words detected.")
+        elif fillers > 5: obs.append(f"Frequent filler words detected ({fillers} instances).")
     
     pauses = feats.get("pause_count")
     if pauses is not None:
@@ -371,85 +371,125 @@ def get_speech_observations(feats):
     return obs
 
 def get_visual_observations(v_feats):
-    if not v_feats or v_feats.get("tracking_reliability") == "analysis_error":
-        return ["Visual analysis unavailable for this video."]
+    if not v_feats or not v_feats.get("face_detected") or v_feats.get("tracking_reliability") != "good":
+        return ["Visual tracking did not detect a face or tracking was unavailable."]
     obs = []
-    if v_feats.get("face_detected"):
-        obs.append("Face was consistently visible during the analyzed portion of the recording.")
-    else:
-        obs.append("Face was frequently obscured or not detected.")
+    obs.append("Face was consistently visible during the analyzed portion of the recording.")
         
     hm = v_feats.get("head_movement_count")
-    if hm is not None:
-        if hm > 15: obs.append("Frequent head movement was observed during the recording.")
+    hm_rate = v_feats.get("head_movement_rate_per_min")
+    if hm_rate is not None:
+        if hm_rate > 35: obs.append(f"Frequent head movement observed ({hm_rate:.1f}/min, above typical 15-35/min baseline).")
+        elif hm_rate < 10: obs.append(f"Very minimal head movement observed ({hm_rate:.1f}/min, posture was steady).")
+        else: obs.append(f"Head movement within typical conversational baseline ({hm_rate:.1f}/min).")
+    elif hm is not None:
+        if hm > 15: obs.append(f"Head movement shifts observed: {hm}.")
         else: obs.append("Head position remained relatively stable.")
         
     obs.append("Visual attention appeared relatively stable during the analyzed frames.")
     return obs
 
 def calculate_analysis_coverage(person_id):
-    has_text = bool((st.session_state.get(f"transcript_{person_id}") or "").strip())
+    transcript = (st.session_state.get(f"transcript_{person_id}") or "").strip()
+    has_text = bool(transcript)
     has_audio = bool(st.session_state.get(f"audio_path_{person_id}"))
     has_video = bool(st.session_state.get(f"video_path_{person_id}"))
-    has_story = bool(st.session_state.get(f"story_data_{person_id}"))
-    has_speech = bool(st.session_state.get(f"speech_features_{person_id}"))
-    has_visual = bool(st.session_state.get(f"visual_features_{person_id}"))
-    has_eval = bool(st.session_state.get(f"evaluation_data_{person_id}"))
-
+    
+    speech_feats = st.session_state.get(f"speech_features_{person_id}")
+    valid_speech = bool(
+        speech_feats 
+        and speech_feats.get("duration_seconds") is not None 
+        and speech_feats.get("duration_seconds") > 0 
+        and speech_feats.get("speaking_rate_wpm") is not None
+        and speech_feats.get("reliability_flag") == "good"
+    )
+    
+    visual_feats = st.session_state.get(f"visual_features_{person_id}")
+    valid_visual = bool(
+        visual_feats 
+        and visual_feats.get("face_detected") is True 
+        and visual_feats.get("tracking_reliability") == "good"
+    )
+    
+    story_data = st.session_state.get(f"story_data_{person_id}")
+    valid_story = bool(story_data and (story_data.get("events") or story_data.get("claims")))
+    
+    eval_data = st.session_state.get(f"evaluation_data_{person_id}")
+    
     breakdown = []
     total_checks = 0
     passed_checks = 0
 
+    # 1. Input Data
+    total_checks += 1
     if has_audio or has_video or has_text:
         breakdown.append("Input Data&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;✅ Available")
-        total_checks += 1
         passed_checks += 1
     else:
         breakdown.append("Input Data&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;❌ Unavailable")
-        total_checks += 1
 
-    if has_text:
+    # 2. Transcript
+    total_checks += 1
+    if has_text and len(transcript.split()) >= 6:
         breakdown.append("Transcript&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;✅ Complete")
         passed_checks += 1
+    elif has_text:
+        breakdown.append("Transcript&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;⚠️ Minimal (<6 words)")
+        passed_checks += 0.5
     else:
         breakdown.append("Transcript&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;❌ Unavailable")
-    total_checks += 1
 
+    # 3. Speech Analysis
     if has_audio or has_video:
         total_checks += 1
-        if has_speech:
+        if valid_speech:
             breakdown.append("Speech Analysis&nbsp;✅ Complete")
             passed_checks += 1
+        elif speech_feats and speech_feats.get("duration_seconds") is None:
+            breakdown.append("Speech Analysis&nbsp;❌ Failed/Unmeasured (No Audio Signal)")
         else:
             breakdown.append("Speech Analysis&nbsp;❌ Failed/Unavailable")
 
+    # 4. Visual Analysis
     if has_video:
         total_checks += 1
-        if has_visual:
+        if valid_visual:
             breakdown.append("Visual Analysis&nbsp;✅ Complete")
             passed_checks += 1
+        elif visual_feats and visual_feats.get("face_presence_ratio", 0) > 0:
+            breakdown.append("Visual Analysis&nbsp;⚠️ Partial (Intermittent Tracking)")
+            passed_checks += 0.5
         else:
-            breakdown.append("Visual Analysis&nbsp;❌ Failed/Unavailable")
-            
+            breakdown.append("Visual Analysis&nbsp;❌ Failed/No Face Detected")
+
+    # 5. Story Analysis
     total_checks += 1
-    if has_story:
+    if valid_story:
         breakdown.append("Story Analysis&nbsp;&nbsp;✅ Complete")
         passed_checks += 1
+    elif has_text:
+        breakdown.append("Story Analysis&nbsp;&nbsp;⚠️ Partial Extraction")
+        passed_checks += 0.5
     else:
         breakdown.append("Story Analysis&nbsp;&nbsp;❌ Unavailable")
 
+    # 6. Individual Evaluation
     total_checks += 1
-    if has_eval:
-        if not has_text or (has_video and not has_visual) or (has_audio and not has_speech):
-            breakdown.append("Individual Eval&nbsp;⚠️ Partial")
-            passed_checks += 0.5
-        else:
+    if eval_data and isinstance(eval_data, dict):
+        scored_dims = sum(1 for item in eval_data.values() if isinstance(item, dict) and isinstance(item.get("score"), int))
+        if scored_dims >= 4:
             breakdown.append("Individual Eval&nbsp;✅ Complete")
             passed_checks += 1
+        elif scored_dims > 0:
+            breakdown.append(f"Individual Eval&nbsp;⚠️ Partial ({scored_dims}/5 Categories Scored)")
+            passed_checks += round(scored_dims / 5.0, 2)
+        else:
+            breakdown.append("Individual Eval&nbsp;⚠️ Insufficient Data (0 Categories Scored)")
+            passed_checks += 0.1
     else:
         breakdown.append("Individual Eval&nbsp;❌ Unavailable")
 
-    score = int((passed_checks / max(1, total_checks)) * 100)
+    score = int(round((passed_checks / max(1, total_checks)) * 100))
     return score, breakdown
 
 
@@ -505,8 +545,10 @@ def render_individual_analysis(person_id: str, person_label: str):
             obs = get_speech_observations(speech_feats)
             for o in obs:
                 st.markdown(f"- {o}")
-            if speech_feats and speech_feats.get("duration_seconds"):
+            if speech_feats and speech_feats.get("duration_seconds") is not None:
                 st.caption(f"Duration: {speech_feats.get('duration_seconds', 0):.1f}s | Words: {speech_feats.get('word_count', 0)} | Rate: {speech_feats.get('speaking_rate_wpm', 0):.0f} WPM")
+            else:
+                st.caption("Acoustic metrics: Unavailable (Duration: N/A | Rate: N/A)")
     with c4:
         with st.container(border=True):
             st.markdown("#### 👁️ Body Language & Visual Signals")
@@ -514,7 +556,10 @@ def render_individual_analysis(person_id: str, person_label: str):
                 obs = get_visual_observations(visual_feats)
                 for o in obs:
                     st.markdown(f"- {o}")
-                st.caption(f"Face Presence: {'Yes' if visual_feats.get('face_detected') else 'No'} | Head Movements: {visual_feats.get('head_movement_count', 'N/A')} | Blinks: {visual_feats.get('blink_count', 'N/A')}")
+                hm_c = visual_feats.get('head_movement_count', 'N/A')
+                hm_r = visual_feats.get('head_movement_rate_per_min')
+                hm_disp = f"{hm_c} ({hm_r:.1f}/min, normal: 15-35/min)" if hm_r is not None and hm_c != "N/A" else str(hm_c)
+                st.caption(f"Face Presence: {'Yes' if visual_feats.get('face_detected') else 'No'} | Head Movements: {hm_disp} | Blinks: {visual_feats.get('blink_count', 'N/A')}")
             else:
                 st.markdown("- No video input provided, visual analysis not applicable.")
 
@@ -527,7 +572,9 @@ def render_individual_analysis(person_id: str, person_label: str):
             with col_ev:
                 st.markdown("**Events Timeline**")
                 for e in story.get("events", []):
-                    with st.expander(f"{e.get('time', 'Unknown time')} - {e.get('location', 'Unknown location')}"):
+                    time_val = e.get('time') or e.get('time_or_relative_time') or e.get('time_normalized') or 'Time unstated'
+                    loc_val = e.get('location') or 'Location unstated'
+                    with st.expander(f"{time_val} - {loc_val}"):
                         st.write(e.get("description"))
             with col_cl:
                 st.markdown("**Key Claims**")
@@ -567,13 +614,15 @@ def render_individual_analysis(person_id: str, person_label: str):
                         
                     c_str, c_imp = st.columns(2)
                     with c_str:
-                        if v.get("what_went_well"):
-                            st.markdown(f"**What Went Well:**\n- {v.get('what_went_well')}")
+                        www = v.get("what_went_well")
+                        if www and str(www).strip().upper() != "N/A":
+                            st.markdown(f"**What Went Well:**\n- {www}")
                     with c_imp:
-                        if v.get("what_needs_improvement"):
-                            st.markdown(f"**What Needs Improvement:**\n- {v.get('what_needs_improvement')}")
+                        wni = v.get("what_needs_improvement")
+                        if wni and str(wni).strip().upper() != "N/A":
+                            st.markdown(f"**What Needs Improvement:**\n- {wni}")
                     
-                    if v.get("practical_recommendation"):
+                    if v.get("practical_recommendation") and str(v.get("practical_recommendation")).strip().upper() != "N/A":
                         st.info(f"💡 **Actionable Recommendation:** {v.get('practical_recommendation')}")
 
         # 5. Overall Performance Summary
@@ -582,16 +631,28 @@ def render_individual_analysis(person_id: str, person_label: str):
             c_s1, c_s2 = st.columns(2)
             with c_s1:
                 st.markdown("##### ✅ Core Strengths")
+                strengths_found = False
                 for key, title in assessment_keys:
                     v = eval_data.get(key)
-                    if isinstance(v, dict) and v.get("what_went_well"):
-                        st.markdown(f"- **{title}**: {v.get('what_went_well')}")
+                    if isinstance(v, dict):
+                        www = v.get("what_went_well")
+                        if www and str(www).strip().upper() != "N/A":
+                            st.markdown(f"- **{title}**: {www}")
+                            strengths_found = True
+                if not strengths_found:
+                    st.caption("No specific strengths measured (insufficient multimodal data).")
             with c_s2:
                 st.markdown("##### ⚠️ Priority Improvement Areas")
+                improvements_found = False
                 for key, title in assessment_keys:
                     v = eval_data.get(key)
-                    if isinstance(v, dict) and v.get("what_needs_improvement"):
-                        st.markdown(f"- **{title}**: {v.get('what_needs_improvement')}")
+                    if isinstance(v, dict):
+                        wni = v.get("what_needs_improvement")
+                        if wni and str(wni).strip().upper() != "N/A":
+                            st.markdown(f"- **{title}**: {wni}")
+                            improvements_found = True
+                if not improvements_found:
+                    st.caption("No specific improvements flagged (insufficient multimodal data).")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -684,7 +745,10 @@ def run_pipeline(person_id: str, person_label: str) -> bool:
                 try:
                     feats = extract_speech_features(st.session_state[audio_path_key], st.session_state.get(transcript_key, ""))
                     st.session_state[speech_features_key] = feats
-                    st.write("✓ Speech analyzed")
+                    if feats.get("duration_seconds") is not None and feats.get("reliability_flag") == "good":
+                        st.write("✓ Speech analyzed")
+                    else:
+                        st.write(f"⚠️ Speech analysis unmeasured or audio silent ({feats.get('reliability_flag', 'unmeasured')})")
                 except Exception as e:
                     st.write(f"⚠️ Speech analysis unavailable: {e}")
 
@@ -694,7 +758,10 @@ def run_pipeline(person_id: str, person_label: str) -> bool:
                 try:
                     v_feats = extract_visual_features(st.session_state[video_path_key])
                     st.session_state[visual_features_key] = v_feats
-                    st.write("✓ Visual observations analyzed")
+                    if v_feats.get("face_detected") and v_feats.get("tracking_reliability") == "good":
+                        st.write("✓ Visual observations analyzed")
+                    else:
+                        st.write(f"⚠️ Visual tracking limited ({v_feats.get('tracking_reliability', 'unmeasured')})")
                 except Exception as e:
                     st.write(f"⚠️ Visual analysis unavailable: {e}")
             

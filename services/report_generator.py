@@ -38,6 +38,22 @@ def _safe_str(val: Any) -> str:
     # FPDF built-in fonts support latin-1; replace any remaining unmappable characters
     return s.encode("latin-1", "replace").decode("latin-1")
 
+def _format_metric(val: Any, unit: str = "", fmt: str = "") -> str:
+    """
+    Format a metric value safely. If None, empty string, or 'N/A', returns 'N/A'.
+    Guarantees no null propagation into unit strings (prevents 'Nones', 'None WPM', 'None Hz').
+    """
+    if val is None or val == "" or val == "N/A":
+        return "N/A"
+    try:
+        if fmt and isinstance(val, (int, float)):
+            formatted = f"{val:{fmt}}"
+        else:
+            formatted = str(val)
+        return f"{formatted}{unit}" if unit else formatted
+    except Exception:
+        return f"{val}{unit}" if unit else str(val)
+
 def generate_evidence_report(
     comparison_result: dict,
     story_a: Optional[dict] = None,
@@ -203,13 +219,17 @@ def generate_evidence_report(
     else:
         if speech_a:
             section(f"{person_a_label} Speech")
-            body(f"Duration: {speech_a.get('duration_seconds', 'N/A')}s | WPM: {speech_a.get('speaking_rate_wpm', 'N/A')}")
-            body(f"Reliability: {speech_a.get('reliability_flag', 'N/A')}")
+            dur_a = _format_metric(speech_a.get('duration_seconds'), 's', '.1f')
+            wpm_a = _format_metric(speech_a.get('speaking_rate_wpm'), ' WPM', '.0f')
+            body(f"Duration: {dur_a} | WPM: {wpm_a}")
+            body(f"Reliability: {_format_metric(speech_a.get('reliability_flag'))}")
             pdf.ln(2)
         if speech_b:
             section(f"{person_b_label} Speech")
-            body(f"Duration: {speech_b.get('duration_seconds', 'N/A')}s | WPM: {speech_b.get('speaking_rate_wpm', 'N/A')}")
-            body(f"Reliability: {speech_b.get('reliability_flag', 'N/A')}")
+            dur_b = _format_metric(speech_b.get('duration_seconds'), 's', '.1f')
+            wpm_b = _format_metric(speech_b.get('speaking_rate_wpm'), ' WPM', '.0f')
+            body(f"Duration: {dur_b} | WPM: {wpm_b}")
+            body(f"Reliability: {_format_metric(speech_b.get('reliability_flag'))}")
             pdf.ln(2)
     pdf.ln(3)
     
@@ -220,11 +240,13 @@ def generate_evidence_report(
     else:
         if visual_a:
             section(f"{person_a_label} Visuals")
-            body(f"Face Present: {visual_a.get('face_detected', 'N/A')} | Blinks: {visual_a.get('blink_count', 'N/A')}")
+            face_a = "Yes" if visual_a.get('face_detected') is True else ("No" if visual_a.get('face_detected') is False else "N/A")
+            body(f"Face Present: {face_a} | Blinks: {_format_metric(visual_a.get('blink_count'))}")
             pdf.ln(2)
         if visual_b:
             section(f"{person_b_label} Visuals")
-            body(f"Face Present: {visual_b.get('face_detected', 'N/A')} | Blinks: {visual_b.get('blink_count', 'N/A')}")
+            face_b = "Yes" if visual_b.get('face_detected') is True else ("No" if visual_b.get('face_detected') is False else "N/A")
+            body(f"Face Present: {face_b} | Blinks: {_format_metric(visual_b.get('blink_count'))}")
             pdf.ln(2)
     pdf.ln(3)
 
@@ -285,19 +307,52 @@ def generate_performance_report(
 
     # 2. Speech Observations
     title("2. Observable Speech Signals")
-    if speech:
-        body(f"Duration: {speech.get('duration_seconds', 'N/A')}s | Words: {speech.get('word_count', 'N/A')} | Rate: {speech.get('speaking_rate_wpm', 'N/A')} WPM")
-        body(f"Pauses: {speech.get('pause_count', 'N/A')} | Pause Time: {speech.get('total_pause_duration_sec', 'N/A')}s | Filler Words: {speech.get('filler_word_count', 'N/A')}")
-        body(f"Pitch (F0): {speech.get('pitch_mean_hz', 'N/A')} Hz (var: {speech.get('pitch_variation_hz', 'N/A')} Hz) | Energy: {speech.get('energy_mean_db', 'N/A')} dB")
+    has_speech_data = speech and any(speech.get(k) is not None for k in ("duration_seconds", "speaking_rate_wpm", "pitch_mean_hz", "energy_mean_db"))
+    if speech and has_speech_data:
+        dur = _format_metric(speech.get('duration_seconds'), 's', '.1f')
+        words = _format_metric(speech.get('word_count'))
+        rate = _format_metric(speech.get('speaking_rate_wpm'), ' WPM', '.0f')
+        body(f"Duration: {dur} | Words: {words} | Rate: {rate}")
+        
+        pauses = _format_metric(speech.get('pause_count'))
+        pause_time = _format_metric(speech.get('total_pause_duration_sec'), 's', '.1f')
+        fillers = _format_metric(speech.get('filler_word_count'))
+        body(f"Pauses: {pauses} | Pause Time: {pause_time} | Filler Words: {fillers}")
+        
+        pitch_m = _format_metric(speech.get('pitch_mean_hz'), ' Hz', '.1f')
+        pitch_v = _format_metric(speech.get('pitch_variation_hz'), ' Hz', '.1f')
+        energy = _format_metric(speech.get('energy_mean_db'), ' dB', '.1f')
+        pitch_text = f"{pitch_m} (var: {pitch_v})" if pitch_m != "N/A" else "N/A"
+        body(f"Pitch (F0): {pitch_text} | Energy: {energy}")
     else:
-        body("Speech signals not available or audio extraction pending.")
+        body("Speech signals not available or acoustic extraction unmeasured.")
     pdf.ln(4)
 
     # 3. Visual Observations
     title("3. Observable Visual Signals")
-    if visual:
-        body(f"Face Detected: {'Yes' if visual.get('face_detected') else 'No'} | Presence Ratio: {visual.get('face_presence_ratio', 'N/A')}")
-        body(f"Head Movements: {visual.get('head_movement_count', 'N/A')} | Blinks: {visual.get('blink_count', 'N/A')} | Tracking Reliability: {visual.get('tracking_reliability', 'N/A')}")
+    has_visual_data = visual and (visual.get("face_detected") or visual.get("head_movement_count") is not None)
+    if visual and has_visual_data:
+        face_det = "Yes" if visual.get('face_detected') is True else ("No" if visual.get('face_detected') is False else "N/A")
+        presence = _format_metric(visual.get('face_presence_ratio'), fmt='.0%') if visual.get('face_presence_ratio') is not None else "N/A"
+        body(f"Face Detected: {face_det} | Presence Ratio: {presence}")
+        
+        hm_count = visual.get('head_movement_count')
+        hm_rate = visual.get('head_movement_rate_per_min')
+        if hm_rate is None and hm_count is not None:
+            dur = visual.get('duration_seconds') or (speech.get('duration_seconds') if speech else None)
+            if dur and dur >= 3.0:
+                hm_rate = round((hm_count / dur) * 60.0, 1)
+        
+        if hm_count is not None and hm_rate is not None:
+            hm_text = f"{hm_count} ({hm_rate:.1f}/min, typical range: 15-35/min)"
+        elif hm_count is not None:
+            hm_text = f"{hm_count} (duration unmeasured)"
+        else:
+            hm_text = "N/A"
+            
+        blinks = _format_metric(visual.get('blink_count'))
+        reliability = _format_metric(visual.get('tracking_reliability'))
+        body(f"Head Movements: {hm_text} | Blinks: {blinks} | Tracking Reliability: {reliability}")
     else:
         body("Visual signals not available or tracking failed.")
     pdf.ln(4)
@@ -315,18 +370,22 @@ def generate_performance_report(
         for k, name in dims:
             item = eval_data.get(k)
             if isinstance(item, dict):
-                score = item.get("score", "N/A")
-                section(f"{name} (Score: {score})")
+                score = item.get("score", "Insufficient Data")
+                score_str = f"{score}/100" if isinstance(score, int) else str(score)
+                section(f"{name} (Score: {score_str})")
                 if item.get("assessment"):
                     body(f"Assessment: {item.get('assessment')}")
                 if item.get("evidence_observation"):
                     body(f"Evidence/Observation: {item.get('evidence_observation')}")
-                if item.get("what_went_well"):
-                    bullet(f"Strength: {item.get('what_went_well')}")
-                if item.get("what_needs_improvement"):
-                    bullet(f"Improvement Area: {item.get('what_needs_improvement')}")
-                if item.get("practical_recommendation"):
-                    bullet(f"Recommendation: {item.get('practical_recommendation')}")
+                www = item.get("what_went_well")
+                if www and str(www).strip().upper() != "N/A":
+                    bullet(f"Strength: {www}")
+                wni = item.get("what_needs_improvement")
+                if wni and str(wni).strip().upper() != "N/A":
+                    bullet(f"Improvement Area: {wni}")
+                rec = item.get("practical_recommendation")
+                if rec and str(rec).strip().upper() != "N/A":
+                    bullet(f"Recommendation: {rec}")
                 pdf.ln(2)
 
     # 5. Story Content & Transcript
@@ -338,7 +397,10 @@ def generate_performance_report(
         if events:
             section("Timeline Events:")
             for e in events:
-                bullet(f"{e.get('time', 'Unknown')} - {e.get('location', 'Unknown')}: {e.get('description', '')}")
+                time_val = e.get('time') or e.get('time_or_relative_time') or e.get('time_normalized') or 'Time unstated'
+                loc_val = e.get('location') or 'Location unstated'
+                desc_val = e.get('description') or ''
+                bullet(f"{time_val} - {loc_val}: {desc_val}")
     pdf.ln(4)
 
     # 6. Limitations

@@ -52,6 +52,9 @@ def extract_visual_features(video_path: str) -> dict:
         "face_detected": False,
         "face_presence_ratio": 0.0,
         "head_movement_count": None,
+        "head_movement_rate_per_min": None,
+        "head_movement_typical_range": "15-35/min",
+        "duration_seconds": None,
         "blink_count": None,
         "tracking_reliability": "good"
     }
@@ -168,6 +171,11 @@ def extract_visual_features(video_path: str) -> dict:
         if result["face_detected"]:
             result["blink_count"] = blink_count
             result["head_movement_count"] = head_movement_count
+            if fps and fps > 0 and frame_idx > 0:
+                dur_sec = round(frame_idx / fps, 1)
+                result["duration_seconds"] = dur_sec
+                if dur_sec >= 3.0:
+                    result["head_movement_rate_per_min"] = round((head_movement_count / dur_sec) * 60.0, 1)
             if frames_processed < 15:
                 result["tracking_reliability"] = "video_too_short"
         else:
@@ -178,6 +186,8 @@ def extract_visual_features(video_path: str) -> dict:
         result["face_detected"] = None
         result["face_presence_ratio"] = None
         result["head_movement_count"] = None
+        result["head_movement_rate_per_min"] = None
+        result["duration_seconds"] = None
         result["blink_count"] = None
         result["tracking_reliability"] = "analysis_error"
 

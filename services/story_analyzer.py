@@ -327,62 +327,130 @@ def _parse_json_response(raw: str, person_name: str) -> dict[str, Any]:
 # ── Individual Assessment ───────────────────────────────────────────────────────
 
 
-def evaluate_individual_account(person_name: str, transcript: str, story_data: dict, speech_feats: dict, visual_feats: dict) -> dict:
+def evaluate_individual_account(
+    person_name: str,
+    transcript: str,
+    story_data: Optional[dict],
+    speech_feats: Optional[dict],
+    visual_feats: Optional[dict]
+) -> dict:
+    has_valid_transcript = bool((transcript or "").strip() and len(transcript.split()) >= 6)
+    has_valid_speech = bool(
+        speech_feats 
+        and speech_feats.get("duration_seconds") is not None 
+        and speech_feats.get("duration_seconds") > 0 
+        and speech_feats.get("speaking_rate_wpm") is not None
+        and speech_feats.get("reliability_flag") == "good"
+    )
+    has_valid_visual = bool(
+        visual_feats 
+        and visual_feats.get("face_detected") is True 
+        and visual_feats.get("tracking_reliability") == "good"
+    )
+    has_valid_story = bool(story_data and (story_data.get("events") or story_data.get("claims")))
+
+    # Ensure head movement rate and normal range are present if visual features exist
+    if visual_feats and visual_feats.get("head_movement_count") is not None:
+        if visual_feats.get("head_movement_rate_per_min") is None:
+            dur = visual_feats.get("duration_seconds") or (speech_feats.get("duration_seconds") if speech_feats else None)
+            if dur and dur >= 3.0:
+                visual_feats["head_movement_rate_per_min"] = round((visual_feats["head_movement_count"] / dur) * 60.0, 1)
+        visual_feats.setdefault("head_movement_typical_range", "15-35/min")
+
     prompt = f"""
-You are an expert communication analyst. Evaluate the provided communication data for '{person_name}'.
+You are an expert communication and performance analyst evaluating '{person_name}'.
 You must output a STRICT JSON object representing your assessment.
 DO NOT invent evidence. Base your score ONLY on the provided JSON features.
-If a data source is missing (e.g. transcript is empty, or visual tracking failed), you MUST NOT guess. Set the score to "Insufficient Data" and explain why.
-For Body Language, output human-readable observations for posture, hand/body movement, facial expression, and distracting movements based on the visual metrics.
-For Engagement, output an assessment of camera attention, eye-contact consistency, and natural delivery based on the visual/speech metrics.
+
+CRITICAL RULES FOR MISSING DATA & DATA INTEGRITY:
+1. Speaking Style & Fluency:
+   - REQUIRES valid speech features (measured speaking rate WPM, duration, pauses).
+   - If Speech Features are MISSING, null, or duration is null: you MUST set:
+     "score": "Insufficient Data", "what_went_well": "N/A", "what_needs_improvement": "N/A",
+     "assessment": "Audio speech features were unavailable or could not be measured.",
+     "evidence_observation": "Acoustic speech stream not available or unmeasured.",
+     "practical_recommendation": "Record or upload an audio track with clear audible speech."
+2. Body Language & Posture:
+   - REQUIRES valid visual features with face_detected=True.
+   - If Visual Features are MISSING, face_detected is False, or tracking failed: you MUST set:
+     "score": "Insufficient Data", "what_went_well": "N/A", "what_needs_improvement": "N/A",
+     "assessment": "Visual tracking did not detect facial landmarks.",
+     "evidence_observation": "No face detected in video stream.",
+     "practical_recommendation": "Ensure camera is positioned at eye-level with adequate lighting."
+   - If visual features ARE present: Head movement is normalized as a rate (movements per minute) with typical conversational range of 15-35 movements/min. Use this rate to make an evidence-backed assessment rather than vague hedging.
+3. Engagement & Delivery:
+   - REQUIRES valid visual camera tracking (face presence ratio, gaze/attention consistency).
+   - If Visual Features are MISSING or face_detected is False: you MUST set:
+     "score": "Insufficient Data", "what_went_well": "N/A", "what_needs_improvement": "N/A",
+     "assessment": "Engagement signals require camera tracking to evaluate eye contact and visual presence.",
+     "evidence_observation": "Visual landmark stream unavailable.",
+     "practical_recommendation": "Maintain camera presence centered within the frame."
+   - DO NOT fabricate advice like 'practice maintaining eye contact' if visual tracking was not measured!
+4. Confidence Indicators:
+   - Evaluates delivery conviction and assertion certainty.
+   - If BOTH speech and visual features are MISSING/unmeasured: you MUST set:
+     "score": "Insufficient Data", "what_went_well": "N/A", "what_needs_improvement": "N/A",
+     "assessment": "Insufficient multimodal behavioral signals to evaluate delivery confidence.",
+     "evidence_observation": "Acoustic and visual streams lack measurable delivery signals.",
+     "practical_recommendation": "Record both clear microphone audio and forward-facing video."
+   - Evaluates certainty markers, hedges (e.g., 'maybe', 'I guess'), and vocal/visual composure.
+   - NEVER critique timeline gaps, dates, or narrative structure in this category.
+5. Story Quality & Structure:
+   - Focuses STRICTLY on narrative structure: chronological sequence, setting, character detail, and timeline coherence.
+   - If Transcript is MISSING or < 6 words: you MUST set:
+     "score": "Insufficient Data", "what_went_well": "N/A", "what_needs_improvement": "N/A"
+   - DO NOT repeat claim-verifiability or evidence-gathering critiques here. Keep recommendations focused on narrative storytelling (chronological transition words, scene setting, timeline specificity).
+
+CRITICAL RULE FOR CATEGORY INDEPENDENCE:
+Confidence Indicators and Story Quality & Structure MUST evaluate separate signals. Confidence Indicators focuses on conviction and assertions; Story Quality focuses on chronological narrative flow. They must NEVER generate duplicate or near-identical improvement text.
 
 DATA AVAILABLE:
 - Transcript: {transcript if transcript else 'MISSING'}
 - Story Extracted: {json.dumps(story_data) if story_data else 'MISSING'}
-- Speech Features: {json.dumps(speech_feats) if speech_feats else 'MISSING'}
-- Visual Features: {json.dumps(visual_feats) if visual_feats else 'MISSING'}
+- Speech Features: {json.dumps(speech_feats) if has_valid_speech else 'MISSING (Acoustic audio unavailable or null)'}
+- Visual Features: {json.dumps(visual_feats) if has_valid_visual else 'MISSING (Camera video unavailable or no face detected)'}
 
-OUTPUT FORMAT (Valid JSON only):
+OUTPUT FORMAT (Strictly Valid JSON only):
 {{
   "confidence_indicators": {{
     "score": <int 0-100 or "Insufficient Data">,
-    "assessment": "<overall assessment of confidence indicators, NOT psychological certainty>",
-    "evidence_observation": "<specific metrics/observations>",
-    "what_went_well": "<strengths>",
-    "what_needs_improvement": "<weaknesses>",
-    "practical_recommendation": "<actionable advice>"
+    "assessment": "<string>",
+    "evidence_observation": "<string>",
+    "what_went_well": "<string or N/A>",
+    "what_needs_improvement": "<string or N/A>",
+    "practical_recommendation": "<string>"
   }},
   "body_language": {{
     "score": <int 0-100 or "Insufficient Data">,
-    "assessment": "<human-readable observations of posture, hand/body movement, facial expression, repetitive/distracting movements>",
-    "evidence_observation": "<specific visual metrics>",
-    "what_went_well": "<strengths>",
-    "what_needs_improvement": "<weaknesses>",
-    "practical_recommendation": "<actionable advice>"
+    "assessment": "<string>",
+    "evidence_observation": "<string>",
+    "what_went_well": "<string or N/A>",
+    "what_needs_improvement": "<string or N/A>",
+    "practical_recommendation": "<string>"
   }},
   "speaking_style": {{
     "score": <int 0-100 or "Insufficient Data">,
-    "assessment": "<assessment of pace, clarity, filler words, pauses>",
-    "evidence_observation": "<specific speech metrics>",
-    "what_went_well": "<strengths>",
-    "what_needs_improvement": "<weaknesses>",
-    "practical_recommendation": "<actionable advice>"
+    "assessment": "<string>",
+    "evidence_observation": "<string>",
+    "what_went_well": "<string or N/A>",
+    "what_needs_improvement": "<string or N/A>",
+    "practical_recommendation": "<string>"
   }},
   "engagement": {{
     "score": <int 0-100 or "Insufficient Data">,
-    "assessment": "<assessment of camera attention, eye-contact consistency, facial expressiveness, natural delivery>",
-    "evidence_observation": "<specific visual and speech metrics>",
-    "what_went_well": "<strengths>",
-    "what_needs_improvement": "<weaknesses>",
-    "practical_recommendation": "<actionable advice>"
+    "assessment": "<string>",
+    "evidence_observation": "<string>",
+    "what_went_well": "<string or N/A>",
+    "what_needs_improvement": "<string or N/A>",
+    "practical_recommendation": "<string>"
   }},
   "story_quality": {{
     "score": <int 0-100 or "Insufficient Data">,
-    "assessment": "<assessment of narrative clarity, evidence coverage, completeness>",
-    "evidence_observation": "<specific extracted facts>",
-    "what_went_well": "<strengths>",
-    "what_needs_improvement": "<weaknesses>",
-    "practical_recommendation": "<actionable advice>"
+    "assessment": "<string>",
+    "evidence_observation": "<string>",
+    "what_went_well": "<string or N/A>",
+    "what_needs_improvement": "<string or N/A>",
+    "practical_recommendation": "<string>"
   }}
 }}
 """
@@ -393,12 +461,110 @@ OUTPUT FORMAT (Valid JSON only):
         response = call_llm(prompt=prompt, system_prompt=system)
         parsed = _parse_json_response(response, person_name)
         if parsed and all(k in parsed for k in ("confidence_indicators", "body_language", "speaking_style", "engagement", "story_quality")):
-            return parsed
+            return _enforce_data_integrity(parsed, has_valid_speech, has_valid_visual, has_valid_transcript, has_valid_story, visual_feats)
     except Exception as e:
         print(f"LLM Evaluation unavailable or failed ({e}), using evidence-based evaluation engine.")
 
     # Evidence-based deterministic evaluation fallback
-    return _deterministic_evaluation(person_name, transcript, story_data, speech_feats, visual_feats)
+    fallback_res = _deterministic_evaluation(person_name, transcript, story_data, speech_feats, visual_feats)
+    return _enforce_data_integrity(fallback_res, has_valid_speech, has_valid_visual, has_valid_transcript, has_valid_story, visual_feats)
+
+
+def _enforce_data_integrity(
+    eval_data: dict,
+    has_valid_speech: bool,
+    has_valid_visual: bool,
+    has_valid_transcript: bool,
+    has_valid_story: bool,
+    visual_feats: Optional[dict] = None
+) -> dict:
+    """
+    Structurally enforce that categories with missing prerequisite signals
+    cannot have hallucinated scores or advice. Also prevents duplicate advice across categories.
+    """
+    if not isinstance(eval_data, dict):
+        eval_data = {}
+
+    # 1. Speaking style requires valid acoustic speech
+    if not has_valid_speech:
+        eval_data["speaking_style"] = {
+            "score": "Insufficient Data",
+            "assessment": "No speech audio available or acoustic metrics could not be extracted.",
+            "evidence_observation": "Acoustic audio stream not provided or extraction returned null metrics.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
+            "practical_recommendation": "Record or upload an audio/video file with audible narration."
+        }
+
+    # 2. Body language requires valid visual face tracking
+    if not has_valid_visual:
+        eval_data["body_language"] = {
+            "score": "Insufficient Data",
+            "assessment": "No face or posture landmarks detected in the video frames.",
+            "evidence_observation": "Visual tracking returned 0 valid face frames.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
+            "practical_recommendation": "Ensure face is well-lit from the front and directly faces the camera."
+        }
+    else:
+        hm_rate = visual_feats.get("head_movement_rate_per_min") if visual_feats else None
+        hm_count = visual_feats.get("head_movement_count") if visual_feats else None
+        if hm_rate is not None and hm_count is not None:
+            bl_item = eval_data.get("body_language", {})
+            obs = bl_item.get("evidence_observation", "")
+            if "range" not in obs and "Head movement" not in obs:
+                bl_item["evidence_observation"] = f"Head movements: {hm_count} ({hm_rate:.1f}/min, typical range: 15-35/min) | {obs}".strip(" |")
+
+    # 3. Engagement requires camera tracking
+    if not has_valid_visual:
+        eval_data["engagement"] = {
+            "score": "Insufficient Data",
+            "assessment": "Engagement signals require active camera tracking to measure eye contact consistency.",
+            "evidence_observation": "No facial landmark stream available to evaluate camera attention.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
+            "practical_recommendation": "Position yourself centered in the camera viewport with clear lighting."
+        }
+
+    # 4. Confidence indicators require multimodal delivery signals
+    if not has_valid_speech and not has_valid_visual:
+        eval_data["confidence_indicators"] = {
+            "score": "Insufficient Data",
+            "assessment": "Insufficient multimodal behavioral signals to evaluate delivery confidence.",
+            "evidence_observation": "Acoustic and visual streams lack sufficient measurable signals.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
+            "practical_recommendation": "Record both clear microphone audio and forward-facing video."
+        }
+
+    # 5. Story quality requires transcript
+    if not has_valid_transcript:
+        eval_data["story_quality"] = {
+            "score": "Insufficient Data",
+            "assessment": "No transcript available to evaluate narrative structure.",
+            "evidence_observation": "Missing textual account.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
+            "practical_recommendation": "Provide a spoken or manual narrative account."
+        }
+
+    # Check for duplicate improvement text between Confidence Indicators and Story Quality (Issue 5)
+    ci = eval_data.get("confidence_indicators", {})
+    sq = eval_data.get("story_quality", {})
+    ci_imp = str(ci.get("what_needs_improvement", "")).strip().lower()
+    sq_imp = str(sq.get("what_needs_improvement", "")).strip().lower()
+    
+    if ci_imp != "n/a" and sq_imp != "n/a" and (ci_imp == sq_imp or ("claim" in sq_imp and ("evidence" in sq_imp or "support" in sq_imp))):
+        sq["what_needs_improvement"] = "Incorporate specific timestamps, location context, and sequential transition words to improve narrative chronology."
+        sq["practical_recommendation"] = "Anchor each event with explicit time markers (e.g., 'at 2 PM', 'shortly afterward') and spatial details."
+
+    # Ensure any category with "Insufficient Data" has "N/A" for what_went_well and what_needs_improvement
+    for k, item in eval_data.items():
+        if isinstance(item, dict) and item.get("score") == "Insufficient Data":
+            item["what_went_well"] = "N/A"
+            item["what_needs_improvement"] = "N/A"
+
+    return eval_data
 
 
 def _deterministic_evaluation(
@@ -408,10 +574,20 @@ def _deterministic_evaluation(
     speech_feats: Optional[dict],
     visual_feats: Optional[dict]
 ) -> dict:
-    has_text = bool((transcript or "").strip())
-    has_speech = bool(speech_feats and speech_feats.get("duration_seconds", 0) > 0)
-    has_visual = bool(visual_feats and visual_feats.get("tracking_reliability") != "analysis_error")
-    face_detected = bool(has_visual and visual_feats.get("face_detected"))
+    has_text = bool((transcript or "").strip() and len(transcript.split()) >= 6)
+    has_speech = bool(
+        speech_feats 
+        and speech_feats.get("duration_seconds") is not None 
+        and speech_feats.get("duration_seconds") > 0 
+        and speech_feats.get("speaking_rate_wpm") is not None
+        and speech_feats.get("reliability_flag") == "good"
+    )
+    has_visual = bool(
+        visual_feats 
+        and visual_feats.get("face_detected") is True 
+        and visual_feats.get("tracking_reliability") == "good"
+    )
+    face_detected = has_visual
 
     # 1. Speaking Style
     if has_speech and speech_feats.get("speaking_rate_wpm", 0) > 15:
@@ -445,51 +621,54 @@ def _deterministic_evaluation(
             "what_needs_improvement": f"Reduce filler words ({fillers} detected) and smooth sentence transitions." if fillers > 2 else "Keep pauses intentional when emphasizing important points.",
             "practical_recommendation": "Use brief silent breaths rather than vocal fillers when moving between thoughts."
         }
-    elif has_speech:
-        speaking_style = {
-            "score": "Insufficient Data",
-            "assessment": "Audio signal contained very low amplitude or no measurable vocal speech.",
-            "evidence_observation": f"Duration: {speech_feats.get('duration_seconds', 0):.1f}s, words detected: {speech_feats.get('word_count', 0)}.",
-            "what_went_well": "Audio channel was successfully recorded.",
-            "what_needs_improvement": "Microphone volume was insufficient for acoustic cadence evaluation.",
-            "practical_recommendation": "Verify microphone input volume and speak clearly toward the microphone."
-        }
     else:
         speaking_style = {
             "score": "Insufficient Data",
-            "assessment": "No speech audio available for acoustic evaluation.",
-            "evidence_observation": "Acoustic audio stream not provided.",
+            "assessment": "No speech audio available or acoustic metrics could not be extracted.",
+            "evidence_observation": "Acoustic audio stream not provided or extraction returned null metrics.",
             "what_went_well": "N/A",
-            "what_needs_improvement": "Provide microphone audio recording.",
+            "what_needs_improvement": "N/A",
             "practical_recommendation": "Record or upload an audio/video file with audible narration."
         }
 
     # 2. Body Language & Posture
     if has_visual and face_detected:
         hm = visual_feats.get("head_movement_count", 0)
+        hm_rate = visual_feats.get("head_movement_rate_per_min")
         blinks = visual_feats.get("blink_count", 0)
         face_ratio = visual_feats.get("face_presence_ratio", 1.0)
 
         bl_score = 80
-        if hm <= 8:
-            bl_score += 10
-            posture_eval = "stable and composed"
-        elif hm <= 18:
-            posture_eval = "moderately dynamic with natural head tilts"
+        if hm_rate is not None:
+            if 15 <= hm_rate <= 35:
+                bl_score += 10
+                posture_eval = f"natural and conversational ({hm_rate:.1f}/min, within typical 15-35/min range)"
+            elif hm_rate < 15:
+                posture_eval = f"stable and composed ({hm_rate:.1f}/min, steady posture)"
+            else:
+                bl_score -= 10
+                posture_eval = f"frequent head movement shifts ({hm_rate:.1f}/min, above typical 15-35/min range)"
         else:
-            bl_score -= 10
-            posture_eval = "frequent head shifts and re-orientations"
+            if hm <= 8:
+                bl_score += 10
+                posture_eval = "stable and composed"
+            elif hm <= 18:
+                posture_eval = "moderately dynamic with natural head tilts"
+            else:
+                bl_score -= 10
+                posture_eval = "frequent head shifts and re-orientations"
 
         if face_ratio < 0.7:
             bl_score -= 15
 
         bl_score = max(50, min(95, int(bl_score)))
+        hm_display = f"{hm} ({hm_rate:.1f}/min, normal range: 15-35/min)" if hm_rate is not None else str(hm)
         body_language = {
             "score": bl_score,
             "assessment": f"Facial landmarks remained visible ({face_ratio:.0%} presence). Head posture was {posture_eval}.",
-            "evidence_observation": f"Face presence: {face_ratio:.0%} | Head movement shifts: {hm} | Blinks: {blinks}",
+            "evidence_observation": f"Face presence: {face_ratio:.0%} | Head movements: {hm_display} | Blinks: {blinks}",
             "what_went_well": "Maintained composed posture and consistent alignment within the camera frame.",
-            "what_needs_improvement": "Keep head posture centered and steady when delivering primary statements." if hm > 8 else "Relax shoulder tension to project natural comfort.",
+            "what_needs_improvement": "Keep head posture centered and steady when delivering primary statements." if (hm_rate and hm_rate > 35) or hm > 18 else "Relax shoulder tension to project natural comfort.",
             "practical_recommendation": "Position camera at eye level approximately an arm's length away."
         }
     else:
@@ -497,8 +676,8 @@ def _deterministic_evaluation(
             "score": "Insufficient Data",
             "assessment": "No face or posture landmarks detected in the video frames.",
             "evidence_observation": "Visual tracking returned 0 valid face frames.",
-            "what_went_well": "Video stream was initialized.",
-            "what_needs_improvement": "Camera angle or lighting prevented reliable facial landmark detection.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
             "practical_recommendation": "Ensure face is well-lit from the front and directly faces the camera."
         }
 
@@ -523,7 +702,7 @@ def _deterministic_evaluation(
             "assessment": "Engagement signals require active facial landmark tracking.",
             "evidence_observation": "No facial landmark stream available.",
             "what_went_well": "N/A",
-            "what_needs_improvement": "Enable camera input to measure camera presence and engagement.",
+            "what_needs_improvement": "N/A",
             "practical_recommendation": "Position yourself centered in the camera viewport."
         }
 
@@ -533,23 +712,23 @@ def _deterministic_evaluation(
     if isinstance(body_language.get("score"), int): valid_scores.append(body_language["score"])
     if isinstance(engagement.get("score"), int): valid_scores.append(engagement["score"])
 
-    if valid_scores:
+    if valid_scores and (has_speech or has_visual):
         conf_score = int(sum(valid_scores) / len(valid_scores))
         confidence_indicators = {
             "score": conf_score,
             "assessment": f"Observable behavioral signals reflect steady delivery composure across {len(valid_scores)} analyzed modalities.",
             "evidence_observation": f"Calculated across {len(valid_scores)} observable behavioral channels (mean rating: {conf_score}/100).",
-            "what_went_well": "Consistent behavioral presence across observable channels.",
-            "what_needs_improvement": "Harmonize vocal emphasis with facial expressiveness for key narrative points.",
-            "practical_recommendation": "Anchor key statements with direct eye contact and deliberate vocal cadence."
+            "what_went_well": "Consistent vocal and physical presence during delivery.",
+            "what_needs_improvement": "Minimize verbal hedges (e.g., 'maybe', 'I guess') and anchor key assertions with steady delivery.",
+            "practical_recommendation": "Pause briefly before delivering central points to convey composure."
         }
     else:
         confidence_indicators = {
             "score": "Insufficient Data",
             "assessment": "Insufficient multimodal signals to compute an evidence-backed confidence score.",
             "evidence_observation": "Acoustic and visual streams lack sufficient measurable signals.",
-            "what_went_well": "Session recorded.",
-            "what_needs_improvement": "Ensure both microphone and camera streams capture clear input.",
+            "what_went_well": "N/A",
+            "what_needs_improvement": "N/A",
             "practical_recommendation": "Re-record in a quiet, well-lit environment speaking audibly."
         }
 
@@ -566,8 +745,8 @@ def _deterministic_evaluation(
             "assessment": f"Account exhibits clear chronological structure with {len(events)} events, {len(claims)} claims, and {len(locations)} locations.",
             "evidence_observation": f"{len(events)} events, {len(claims)} claims, {len(locations)} locations, {len(people)} people referenced.",
             "what_went_well": "Clear sequential narrative with identifiable factual anchors.",
-            "what_needs_improvement": "Specify explicit time durations and dates for each sequence.",
-            "practical_recommendation": "State exact times and sequential connectors (first, then, afterward)."
+            "what_needs_improvement": "Incorporate specific timestamps, location context, and sequential transition words to improve narrative chronology.",
+            "practical_recommendation": "Anchor each event with explicit time markers (e.g., 'at 2 PM', 'shortly afterward') and spatial details."
         }
     elif has_text and len(transcript.split()) >= 6:
         words = len(transcript.split())
@@ -576,7 +755,7 @@ def _deterministic_evaluation(
             "assessment": f"Transcript with {words} words captured. Structured narrative points are minimal.",
             "evidence_observation": f"Raw transcript contains {words} words.",
             "what_went_well": "Account was successfully captured in text.",
-            "what_needs_improvement": "Add specific time markers and chronological sequence points.",
+            "what_needs_improvement": "Add specific time markers and chronological sequence connectors (first, then, afterward).",
             "practical_recommendation": "Structure the narrative with specific timestamps and locations."
         }
     else:
@@ -585,8 +764,8 @@ def _deterministic_evaluation(
             "assessment": "No transcript available to evaluate narrative structure.",
             "evidence_observation": "Missing textual account.",
             "what_went_well": "N/A",
-            "what_needs_improvement": "Provide a spoken or manual narrative account.",
-            "practical_recommendation": "Speak clearly into the microphone or enter a transcript manually."
+            "what_needs_improvement": "N/A",
+            "practical_recommendation": "Provide a spoken or manual narrative account."
         }
 
     return {

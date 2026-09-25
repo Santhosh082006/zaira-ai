@@ -50,20 +50,6 @@ def sep(title=""):
         print(f"{BOLD}  {title}{RESET}")
         print(line)
 
-# ── Pre-flight ─────────────────────────────────────────────────────────────────
-sep("TruthLens AI -- Stage 4 Functional Test")
-provider = get_active_provider()
-model    = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-api_key  = os.getenv("OPENROUTER_API_KEY", "").strip()
-info(f"Provider : {provider}")
-info(f"Model    : {model}")
-info(f"API key  : {'SET (...' + api_key[-6:] + ')' if api_key else 'NOT SET'}")
-
-if not api_key and provider == "openrouter":
-    print(f"\n{RED}ERROR: OPENROUTER_API_KEY not set.{RESET}")
-    sys.exit(1)
-
-
 # ── Mock story builder ─────────────────────────────────────────────────────────
 
 def make_story(person, events, people=None, locations=None, times=None,
@@ -296,75 +282,90 @@ def assert_no_forbidden_language(data: dict) -> bool:
     return True
 
 
-# ── Run tests ──────────────────────────────────────────────────────────────────
+def run_tests():
+    # ── Pre-flight ─────────────────────────────────────────────────────────────────
+    sep("TruthLens AI -- Stage 4 Functional Test")
+    provider = get_active_provider()
+    model    = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    api_key  = os.getenv("OPENROUTER_API_KEY", "").strip()
+    info(f"Provider : {provider}")
+    info(f"Model    : {model}")
+    info(f"API key  : {'SET (...' + api_key[-6:] + ')' if api_key else 'NOT SET'}")
 
-overall_passed = 0
-overall_failed = 0
+    if not api_key and provider == "openrouter":
+        print(f"\n{RED}ERROR: OPENROUTER_API_KEY not set.{RESET}")
+        sys.exit(1)
 
-for tc in TEST_CASES:
-    sep(f"{tc['id']} -- {tc['label']}")
+    overall_passed = 0
+    overall_failed = 0
 
-    t_start = time.time()
-    try:
-        data = compare_stories(tc["story_a"], tc["story_b"])
-        elapsed = time.time() - t_start
-        ok(f"API call succeeded ({elapsed:.1f}s)")
-    except Exception as exc:
-        elapsed = time.time() - t_start
-        fail(f"API call FAILED after {elapsed:.1f}s: {exc}")
-        overall_failed += 1
-        continue
+    for tc in TEST_CASES:
+        sep(f"{tc['id']} -- {tc['label']}")
 
-    # Schema validation
-    is_valid, errs = validate_comparison(data)
-    if is_valid:
-        ok("validate_comparison() -> PASS")
-    else:
-        for e in errs:
-            fail(f"Validation: {e}")
+        t_start = time.time()
+        try:
+            data = compare_stories(tc["story_a"], tc["story_b"])
+            elapsed = time.time() - t_start
+            ok(f"API call succeeded ({elapsed:.1f}s)")
+        except Exception as exc:
+            elapsed = time.time() - t_start
+            fail(f"API call FAILED after {elapsed:.1f}s: {exc}")
+            overall_failed += 1
+            continue
 
-    # Assertions
-    exp = tc["expect"]
-    checks = []
+        # Schema validation
+        is_valid, errs = validate_comparison(data)
+        if is_valid:
+            ok("validate_comparison() -> PASS")
+        else:
+            for e in errs:
+                fail(f"Validation: {e}")
 
-    checks.append(assert_status(data, exp.get("overall_status_must_be", [])))
+        # Assertions
+        exp = tc["expect"]
+        checks = []
 
-    if "min_matches" in exp:
-        checks.append(assert_min_count(data, "matches", exp["min_matches"]))
-    if "max_discrepancies" in exp:
-        checks.append(assert_max_count(data, "discrepancies", exp["max_discrepancies"]))
-    if "min_discrepancies" in exp:
-        checks.append(assert_min_count(data, "discrepancies", exp["min_discrepancies"]))
-    if "min_missing" in exp:
-        checks.append(assert_min_count(data, "missing_information", exp["min_missing"]))
-    if "discrepancy_category_must_include" in exp:
-        checks.append(assert_discrepancy_category(data, exp["discrepancy_category_must_include"]))
-    if "missing_value_must_include" in exp:
-        checks.append(assert_missing_value(data, exp["missing_value_must_include"]))
-    if exp.get("rahul_must_not_be_discrepancy"):
-        checks.append(assert_rahul_not_discrepancy(data))
+        checks.append(assert_status(data, exp.get("overall_status_must_be", [])))
 
-    checks.append(assert_no_forbidden_language(data))
+        if "min_matches" in exp:
+            checks.append(assert_min_count(data, "matches", exp["min_matches"]))
+        if "max_discrepancies" in exp:
+            checks.append(assert_max_count(data, "discrepancies", exp["max_discrepancies"]))
+        if "min_discrepancies" in exp:
+            checks.append(assert_min_count(data, "discrepancies", exp["min_discrepancies"]))
+        if "min_missing" in exp:
+            checks.append(assert_min_count(data, "missing_information", exp["min_missing"]))
+        if "discrepancy_category_must_include" in exp:
+            checks.append(assert_discrepancy_category(data, exp["discrepancy_category_must_include"]))
+        if "missing_value_must_include" in exp:
+            checks.append(assert_missing_value(data, exp["missing_value_must_include"]))
+        if exp.get("rahul_must_not_be_discrepancy"):
+            checks.append(assert_rahul_not_discrepancy(data))
 
-    # Print JSON
-    print()
-    info("Comparison JSON:")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+        checks.append(assert_no_forbidden_language(data))
 
-    tc_pass = all(checks) and is_valid
-    label_str = f"{GREEN}PASSED{RESET}" if tc_pass else f"{RED}FAILED{RESET}"
-    print(f"\n  {tc['id']} result: {label_str}")
-    if tc_pass:
-        overall_passed += 1
-    else:
-        overall_failed += 1
+        # Print JSON
+        print()
+        info("Comparison JSON:")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+
+        tc_pass = all(checks) and is_valid
+        label_str = f"{GREEN}PASSED{RESET}" if tc_pass else f"{RED}FAILED{RESET}"
+        print(f"\n  {tc['id']} result: {label_str}")
+        if tc_pass:
+            overall_passed += 1
+        else:
+            overall_failed += 1
+
+    # ── Final summary ──────────────────────────────────────────────────────────────
+    sep("FINAL SUMMARY")
+    total = overall_passed + overall_failed
+    print(f"  Tests run    : {total}")
+    print(f"  {GREEN}Passed{RESET}       : {overall_passed}")
+    print(f"  {RED}Failed{RESET}       : {overall_failed}")
+    print("=" * 66)
+    sys.exit(0 if overall_failed == 0 else 1)
 
 
-# ── Final summary ──────────────────────────────────────────────────────────────
-sep("FINAL SUMMARY")
-total = overall_passed + overall_failed
-print(f"  Tests run    : {total}")
-print(f"  {GREEN}Passed{RESET}       : {overall_passed}")
-print(f"  {RED}Failed{RESET}       : {overall_failed}")
-print("=" * 66)
-sys.exit(0 if overall_failed == 0 else 1)
+if __name__ == "__main__":
+    run_tests()

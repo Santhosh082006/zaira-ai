@@ -49,24 +49,88 @@ def sep(title=""):
         print(f"{BOLD}  {title}{RESET}")
         print(line)
 
-# ── Pre-flight: check configuration ───────────────────────────────────────────
-sep("TruthLens AI — Stage 3 Functional Test")
+def run_tests():
+    # ── Pre-flight: check configuration ───────────────────────────────────────────
+    sep("TruthLens AI — Stage 3 Functional Test")
 
-provider = get_active_provider()
-model    = os.getenv("OPENROUTER_MODEL", "google/gemini-flash-1.5")
-api_key  = os.getenv("OPENROUTER_API_KEY", "").strip()
+    provider = get_active_provider()
+    model    = os.getenv("OPENROUTER_MODEL", "google/gemini-flash-1.5")
+    api_key  = os.getenv("OPENROUTER_API_KEY", "").strip()
 
-info(f"Provider : {provider}")
-info(f"Model    : {model}")
-info(f"API key  : {'SET (...' + api_key[-6:] + ')' if api_key else 'NOT SET'}")
+    info(f"Provider : {provider}")
+    info(f"Model    : {model}")
+    info(f"API key  : {'SET (...' + api_key[-6:] + ')' if api_key else 'NOT SET'}")
 
-if not api_key and provider == "openrouter":
-    print(f"\n{RED}ERROR: OPENROUTER_API_KEY is not set in your .env file.{RESET}")
-    print("  1. Copy .env.example  ->  .env")
-    print("  2. Set OPENROUTER_API_KEY=sk-or-...")
-    print("  3. Set LLM_PROVIDER=openrouter")
-    print("  4. Re-run this script.")
-    sys.exit(1)
+    if not api_key and provider == "openrouter":
+        print(f"\n{RED}ERROR: OPENROUTER_API_KEY is not set in your .env file.{RESET}")
+        print("  1. Copy .env.example  ->  .env")
+        print("  2. Set OPENROUTER_API_KEY=sk-or-...")
+        print("  3. Set LLM_PROVIDER=openrouter")
+        print("  4. Re-run this script.")
+        sys.exit(1)
+
+    overall_passed = 0
+    overall_failed = 0
+
+    for tc in TEST_CASES:
+        sep(f"{tc['id']} — {tc['person']}")
+        print(f"  Transcript: \"{tc['transcript']}\"")
+        print()
+
+        # ── API call ───────────────────────────────────────────────────────────────
+        t_start = time.time()
+        try:
+            data = extract_story_facts(tc["transcript"], tc["person"])
+            elapsed = time.time() - t_start
+            ok(f"API call succeeded ({elapsed:.1f}s)")
+        except Exception as exc:
+            elapsed = time.time() - t_start
+            fail(f"API call FAILED after {elapsed:.1f}s: {exc}")
+            overall_failed += 1
+            continue
+
+        # ── Validation ─────────────────────────────────────────────────────────────
+        is_valid, errors = validate_extracted_story(data)
+        if is_valid:
+            ok("validate_extracted_story() -> PASS")
+        else:
+            fail(f"validate_extracted_story() -> FAIL: {errors}")
+
+        # ── Assertions ─────────────────────────────────────────────────────────────
+        exp = tc["expect"]
+        checks = [
+            assert_person(data, exp["person_matches"]),
+            assert_locations(data, exp["locations_must_include"]),
+            assert_people(data, exp["people_must_include"]),
+            assert_times(data, exp["times_must_include"]),
+        ]
+        if exp.get("activity_keywords"):
+            checks.append(assert_activity(data, exp["activity_keywords"]))
+        if exp.get("null_hallucination"):
+            checks.append(assert_no_hallucination(data))
+
+        # ── Print output JSON ──────────────────────────────────────────────────────
+        print()
+        info("Extracted JSON:")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+
+        tc_pass = all(checks) and is_valid
+        label   = f"{GREEN}PASSED{RESET}" if tc_pass else f"{RED}FAILED{RESET}"
+        print(f"\n  {tc['id']} result: {label}")
+        if tc_pass:
+            overall_passed += 1
+        else:
+            overall_failed += 1
+
+    # ── Final summary ──────────────────────────────────────────────────────────────
+    sep("FINAL SUMMARY")
+    total = overall_passed + overall_failed
+    print(f"  Tests run    : {total}")
+    print(f"  {GREEN}Passed{RESET}       : {overall_passed}")
+    print(f"  {RED}Failed{RESET}       : {overall_failed}")
+    print("=" * 66)
+    sys.exit(0 if overall_failed == 0 else 1)
+
 
 # ── Test cases ─────────────────────────────────────────────────────────────────
 
@@ -264,73 +328,5 @@ def assert_no_hallucination(data: dict) -> bool:
     return True
 
 
-# ── Run tests ──────────────────────────────────────────────────────────────────
-
-overall_passed = 0
-overall_failed = 0
-
-for tc in TEST_CASES:
-    sep(f"{tc['id']} — {tc['person']}")
-    print(f"  Transcript: \"{tc['transcript']}\"")
-    print()
-
-    # ── API call ───────────────────────────────────────────────────────────────
-    t_start = time.time()
-    try:
-        data = extract_story_facts(tc["transcript"], tc["person"])
-        elapsed = time.time() - t_start
-        ok(f"API call succeeded ({elapsed:.1f}s)")
-    except Exception as exc:
-        elapsed = time.time() - t_start
-        fail(f"API call FAILED after {elapsed:.1f}s: {exc}")
-        overall_failed += 1
-        continue
-
-    # ── Validation ─────────────────────────────────────────────────────────────
-    is_valid, errors = validate_extracted_story(data)
-    if is_valid:
-        ok("validate_extracted_story() → PASS")
-    else:
-        for e in errors:
-            fail(f"Validation error: {e}")
-
-    # ── Assertions ─────────────────────────────────────────────────────────────
-    exp = tc["expect"]
-    checks = []
-
-    checks.append(assert_person(data, exp["person_matches"]))
-    checks.append(assert_locations(data, exp["locations_must_include"]))
-    checks.append(assert_people(data, exp["people_must_include"]))
-    checks.append(assert_times(
-        data,
-        exp["times_must_include"],
-        must_be_empty=exp.get("times_must_be_empty", False),
-    ))
-    checks.append(assert_activity(data, exp["activity_keywords"]))
-
-    # Special hallucination guard for Test 2
-    if exp.get("null_hallucination"):
-        checks.append(assert_no_hallucination(data))
-
-    # ── Print the structured JSON ──────────────────────────────────────────────
-    print()
-    info("Structured JSON returned by LLM:")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
-
-    # ── Summary for this test ──────────────────────────────────────────────────
-    tc_pass = all(checks) and is_valid
-    tc_label = f"{GREEN}PASSED{RESET}" if tc_pass else f"{RED}FAILED{RESET}"
-    print(f"\n  {tc['id']} result: {tc_label}")
-    if tc_pass:
-        overall_passed += 1
-    else:
-        overall_failed += 1
-
-# ── Final summary ──────────────────────────────────────────────────────────────
-sep("FINAL SUMMARY")
-total = overall_passed + overall_failed
-print(f"  Tests run    : {total}")
-print(f"  {GREEN}Passed{RESET}       : {overall_passed}")
-print(f"  {RED}Failed{RESET}       : {overall_failed}")
-print("=" * 66)
-sys.exit(0 if overall_failed == 0 else 1)
+if __name__ == "__main__":
+    run_tests()
