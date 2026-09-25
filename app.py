@@ -870,7 +870,12 @@ def main():
         if st.button("🔄 Start New Analysis", use_container_width=True, type="primary"):
             for pk in ["a", "b"]:
                 for key in ["audio_bytes", "transcript", "textarea", "audio_path", "story_data", "speech_features", "video_path", "visual_features", "evaluation_data", "media_hash", "media_source", "live_recorded_mtime"]:
-                    st.session_state[f"{key}_{pk}"] = None if key not in ["transcript", "textarea"] else ""
+                    if key in ["transcript", "textarea"]:
+                        st.session_state[f"{key}_{pk}"] = ""
+                    elif key == "live_recorded_mtime":
+                        st.session_state[f"{key}_{pk}"] = 0
+                    else:
+                        st.session_state[f"{key}_{pk}"] = None
             st.session_state["comparison_result"] = None
             st.rerun()
     with c2:
@@ -940,7 +945,7 @@ def main():
         if os.path.exists(live_video_path) and os.path.getsize(live_video_path) > 0:
             import hashlib
             live_mtime = os.path.getmtime(live_video_path)
-            prev_live_mtime = st.session_state.get(f"live_recorded_mtime_{person_id}", 0)
+            prev_live_mtime = st.session_state.get(f"live_recorded_mtime_{person_id}") or 0
             
             with open(live_video_path, "rb") as f:
                 curr_hash = hashlib.sha256(f.read()).hexdigest()
