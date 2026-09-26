@@ -404,7 +404,8 @@ def run_pipeline(
                     st.write(f"⚠️ Visual analysis unavailable: {e}")
 
             # 5. Story Narrative Extraction
-            curr_trans = (st.session_state.get(transcript_key) or "").strip()
+            raw_trans = st.session_state.get(transcript_key)
+            curr_trans = (raw_trans.get("text", "") if isinstance(raw_trans, dict) else str(raw_trans or "")).strip()
             if curr_trans and len(curr_trans.split()) >= 6 and not st.session_state.get(story_key):
                 st.write("⏳ Extracting structured narrative...")
                 try:
@@ -449,7 +450,8 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
     """Render full performance results, coverage, observations, and PDF download."""
     story = st.session_state.get(f"story_data_{person_id}")
     eval_data = st.session_state.get(f"evaluation_data_{person_id}")
-    transcript = (st.session_state.get(f"transcript_{person_id}") or "").strip()
+    raw_trans = st.session_state.get(f"transcript_{person_id}")
+    transcript = (raw_trans.get("text", "") if isinstance(raw_trans, dict) else str(raw_trans or "")).strip()
     speech_feats = st.session_state.get(f"speech_features_{person_id}")
     visual_feats = st.session_state.get(f"visual_features_{person_id}")
     video_path = st.session_state.get(f"video_path_{person_id}")
@@ -795,24 +797,32 @@ def render_feature_live_camera(active_context_key: str) -> None:
         # Render performance analysis
         render_individual_analysis(person_id, person_label)
 
+    # Sync friendly aliases
+    st.session_state["live_recording"] = st.session_state.get(video_path_key)
+    st.session_state["live_video"] = st.session_state.get(video_path_key)
+    st.session_state["live_transcript"] = st.session_state.get(f"transcript_{person_id}")
+    st.session_state["live_features"] = st.session_state.get(f"speech_features_{person_id}")
+    st.session_state["live_analysis"] = st.session_state.get(f"evaluation_data_{person_id}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FEATURE 2: 📁 UPLOAD VIDEO
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURE 2: 📁 INDIVIDUAL VIDEO ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def render_feature_upload_video(active_context_key: str) -> None:
-    st.title("📁 Upload Video Analysis")
-    st.caption("Upload any pre-recorded video to evaluate speaking style, posture composure, and message structure using the same evidence-based engine.")
+def render_feature_individual_video(active_context_key: str) -> None:
+    st.title("📁 Individual Video Analysis")
+    st.caption("Upload a video to receive an individual communication-performance assessment.")
 
     person_id = "upload"
-    person_label = "Uploaded Video"
+    person_label = "Individual Performer"
     video_path_key = f"video_path_{person_id}"
     session_id = st.session_state.get("_session_id", "default")
 
     uploaded_file = st.file_uploader(
-        "Select video file (MP4, WebM, MOV):",
+        "Upload Video (MP4, WebM, MOV):",
         type=["mp4", "webm", "mov"],
-        key=f"uploader_upload_feature_{session_id}"
+        key=f"uploader_individual_video_{session_id}"
     )
 
     if uploaded_file:
@@ -821,7 +831,7 @@ def render_feature_upload_video(active_context_key: str) -> None:
 
         if st.session_state.get(f"media_hash_{person_id}") != file_hash:
             st.session_state[f"media_hash_{person_id}"] = file_hash
-            save_path = os.path.join(VIDEO_DIR, f"session_uploaded_{session_id}.mp4")
+            save_path = os.path.join(VIDEO_DIR, f"individual_video_{session_id}.mp4")
             with open(save_path, "wb") as f:
                 f.write(buffer)
             st.session_state[video_path_key] = save_path
@@ -832,13 +842,15 @@ def render_feature_upload_video(active_context_key: str) -> None:
     sample_files = [f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")]
     if sample_files and not st.session_state.get(video_path_key):
         with st.expander("⚡ Or Select a Test Video from Repository"):
-            chosen = st.selectbox("Choose sample video:", sample_files, key="select_sample_upload")
-            if st.button("Load Selected Video", key="btn_load_sample_upload"):
+            chosen = st.selectbox("Choose sample video:", sample_files, key="select_sample_individual")
+            if st.button("Load Selected Video", key="btn_load_sample_individual"):
                 chosen_path = os.path.join(VIDEO_DIR, chosen)
-                with open(chosen_path, "rb") as f:
+                save_path = os.path.join(VIDEO_DIR, f"individual_video_{session_id}.mp4")
+                shutil.copyfile(chosen_path, save_path)
+                with open(save_path, "rb") as f:
                     file_hash = hashlib.sha256(f.read()).hexdigest()
                 st.session_state[f"media_hash_{person_id}"] = file_hash
-                st.session_state[video_path_key] = chosen_path
+                st.session_state[video_path_key] = save_path
                 reset_person_downstream(person_id)
                 st.success("Sample video loaded.")
                 st.rerun()
@@ -850,12 +862,23 @@ def render_feature_upload_video(active_context_key: str) -> None:
         with c_prev:
             st.video(st.session_state[video_path_key])
         with c_act:
-            st.write("Click below to run the unified performance analysis pipeline.")
-            if st.button("▶️ Analyze Video", type="primary", use_container_width=True, key="btn_analyze_upload"):
+            st.write("Click below to run the individual performance assessment.")
+            if st.button("▶️ Analyze Performance", type="primary", use_container_width=True, key="btn_analyze_individual"):
                 run_pipeline(person_id, person_label, context_key=active_context_key)
 
         # Render performance analysis
         render_individual_analysis(person_id, person_label)
+
+    # Sync friendly aliases
+    st.session_state["individual_video"] = st.session_state.get(video_path_key)
+    st.session_state["individual_video_path"] = st.session_state.get(video_path_key)
+    st.session_state["individual_transcript"] = st.session_state.get(f"transcript_{person_id}")
+    st.session_state["individual_features"] = st.session_state.get(f"speech_features_{person_id}")
+    st.session_state["individual_analysis"] = st.session_state.get(f"evaluation_data_{person_id}")
+
+
+# Backward-compatible alias
+render_feature_upload_video = render_feature_individual_video
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -959,29 +982,48 @@ def render_feature_compare_videos(active_context_key: str) -> None:
         bool(st.session_state.get("evaluation_data_a"))
         and bool(st.session_state.get("evaluation_data_b"))
     )
+    both_videos_uploaded = (
+        bool(st.session_state.get("video_path_a"))
+        and bool(st.session_state.get("video_path_b"))
+    )
 
-    if not can_compare:
-        st.info("💡 Analyze both Video A and Video B above to enable comparison.")
+    if not both_videos_uploaded and not can_compare:
+        st.info("💡 Upload or select Video A and Video B above to enable comparative assessment.")
     else:
-        if st.button("⚖️ Compare Measured Performance", type="primary", use_container_width=True, key="btn_compare_exec"):
-            with st.spinner("Calculating side-by-side metric deltas and criteria evaluation..."):
-                res = compare_multimodal_performance(
-                    eval_a=st.session_state.get("evaluation_data_a"),
-                    eval_b=st.session_state.get("evaluation_data_b"),
-                    speech_a=st.session_state.get("speech_features_a"),
-                    speech_b=st.session_state.get("speech_features_b"),
-                    visual_a=st.session_state.get("visual_features_a"),
-                    visual_b=st.session_state.get("visual_features_b"),
-                    story_a=st.session_state.get("story_data_a"),
-                    story_b=st.session_state.get("story_data_b"),
-                    profile_key=active_context_key,
-                    label_a="Video A",
-                    label_b="Video B"
-                )
-                st.session_state["multimodal_comparison"] = res
+        btn_label = "⚖️ Analyze & Compare" if not can_compare else "⚖️ Compare Measured Performance"
+        if st.button(btn_label, type="primary", use_container_width=True, key="btn_compare_exec"):
+            if not st.session_state.get("evaluation_data_a"):
+                run_pipeline("a", "Video A", context_key=active_context_key)
+            if not st.session_state.get("evaluation_data_b"):
+                run_pipeline("b", "Video B", context_key=active_context_key)
+
+            if st.session_state.get("evaluation_data_a") and st.session_state.get("evaluation_data_b"):
+                with st.spinner("Calculating side-by-side metric deltas and criteria evaluation..."):
+                    res = compare_multimodal_performance(
+                        eval_a=st.session_state.get("evaluation_data_a"),
+                        eval_b=st.session_state.get("evaluation_data_b"),
+                        speech_a=st.session_state.get("speech_features_a"),
+                        speech_b=st.session_state.get("speech_features_b"),
+                        visual_a=st.session_state.get("visual_features_a"),
+                        visual_b=st.session_state.get("visual_features_b"),
+                        story_a=st.session_state.get("story_data_a"),
+                        story_b=st.session_state.get("story_data_b"),
+                        profile_key=active_context_key,
+                        label_a="Video A",
+                        label_b="Video B"
+                    )
+                    st.session_state["multimodal_comparison"] = res
+            else:
+                st.error("Both Video A and Video B must be successfully analyzed before comparison.")
 
         if st.session_state.get("multimodal_comparison"):
             render_comparison_view(st.session_state["multimodal_comparison"], "Video A", "Video B")
+
+    # Sync friendly aliases
+    st.session_state["comparison_video_a"] = st.session_state.get("video_path_a")
+    st.session_state["comparison_video_b"] = st.session_state.get("video_path_b")
+    st.session_state["comparison_analysis_a"] = st.session_state.get("evaluation_data_a")
+    st.session_state["comparison_analysis_b"] = st.session_state.get("evaluation_data_b")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -995,7 +1037,11 @@ def main():
     st.sidebar.title("TruthLens")
     feature_mode = st.sidebar.radio(
         "Select Feature:",
-        ["🎥 Live Camera Recording", "⚖️ Compare & Assess"],
+        [
+            "🎥 Live Camera Recording",
+            "📁 Individual Video Analysis",
+            "⚖️ Compare & Assess"
+        ],
         key="sidebar_primary_nav"
     )
 
@@ -1040,6 +1086,8 @@ def main():
     # ── Feature Routing ────────────────────────────────────────────────────────
     if feature_mode == "🎥 Live Camera Recording":
         render_feature_live_camera(active_context_key)
+    elif feature_mode == "📁 Individual Video Analysis":
+        render_feature_individual_video(active_context_key)
     elif feature_mode == "⚖️ Compare & Assess":
         render_feature_compare_videos(active_context_key)
 

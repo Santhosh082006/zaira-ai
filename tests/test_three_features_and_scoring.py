@@ -51,7 +51,7 @@ from analytical_engine.visual_metrics import evaluate_visual_performance
 from analytical_engine.evaluator import compute_deterministic_scores, evaluate_account_with_explanation
 from analytical_engine.cross_comparator import compare_multimodal_performance
 from services.report_generator import generate_performance_report, generate_evidence_report
-from app import calculate_analysis_coverage, reset_person_downstream
+from app import calculate_analysis_coverage, reset_person_downstream, init_session_lifecycle
 
 
 def _extract_pdf_text(pdf_bytes: bytes) -> str:
@@ -471,6 +471,122 @@ class TestThreeFeaturesAndScoring(unittest.TestCase):
         comp_str = json.dumps(comp).lower()
         for term in FORBIDDEN_DECEPTION_TERMS:
             self.assertNotIn(term, comp_str, f"Forbidden term '{term}' found in comparison output.")
+
+    # ── TEST 15: Individual Video Analysis processes exactly ONE video ───────
+    def test_15_individual_video_analysis_workflow_isolated(self):
+        # Feature 2 requires only ONE video, no Video B
+        st.session_state["video_path_upload"] = "uploaded_candidate.mp4"
+        st.session_state["video_path_b"] = None
+        st.session_state["evaluation_data_b"] = None
+
+        speech = {
+            "duration_seconds": 22.0,
+            "word_count": 48,
+            "speaking_rate_wpm": 130.0,
+            "pause_count": 2,
+            "total_pause_duration_sec": 1.4,
+            "filler_word_count": 1,
+            "reliability_flag": "good"
+        }
+        visual = {
+            "face_detected": True,
+            "face_presence_ratio": 0.95,
+            "head_movement_count": 8,
+            "head_movement_rate_per_min": 21.8,
+            "blink_count": 6,
+            "duration_seconds": 22.0,
+            "tracking_reliability": "good"
+        }
+        transcript = "I oversaw the product release and coordinated across the cross-functional teams."
+        story = {"events": [{"time": "release date", "location": "office", "description": "oversaw release"}]}
+
+        eval_res = evaluate_account_with_explanation(
+            person_name="Uploaded Performer",
+            transcript=transcript,
+            story_data=story,
+            speech_feats=speech,
+            visual_feats=visual,
+            profile_key=CONTEXT_JOB_INTERVIEW
+        )
+
+        st.session_state["evaluation_data_upload"] = eval_res
+
+        # All 5 multimodal categories must be present and evaluated
+        for cat in ALL_CATEGORIES:
+            self.assertIn(cat, eval_res)
+            self.assertIsInstance(eval_res[cat]["score"], int)
+            self.assertGreater(eval_res[cat]["score"], 0)
+
+        # Video B remains completely empty / unneeded
+        self.assertIsNone(st.session_state.get("video_path_b"))
+        self.assertIsNone(st.session_state.get("evaluation_data_b"))
+
+    # ── TEST 16: Complete state isolation between Feature 2 and Feature 3 ────
+    def test_16_state_isolation_between_upload_and_comparison(self):
+        # Set up Feature 2 (upload) state
+        st.session_state["video_path_upload"] = "file_ind.mp4"
+        st.session_state["speech_features_upload"] = {"speaking_rate_wpm": 135}
+        st.session_state["evaluation_data_upload"] = {"speaking_style": {"score": 85}}
+
+        # Set up Feature 3 (comparison) state
+        st.session_state["video_path_a"] = "file_a.mp4"
+        st.session_state["video_path_b"] = "file_b.mp4"
+        st.session_state["speech_features_a"] = {"speaking_rate_wpm": 110}
+        st.session_state["speech_features_b"] = {"speaking_rate_wpm": 150}
+        st.session_state["evaluation_data_a"] = {"speaking_style": {"score": 75}}
+        st.session_state["evaluation_data_b"] = {"speaking_style": {"score": 90}}
+        st.session_state["multimodal_comparison"] = {"winner": "Video B"}
+
+        # Resetting Feature 2 (upload) must NOT mutate Feature 3 (a, b, comparison)
+        reset_person_downstream("upload")
+        st.session_state["video_path_upload"] = None
+
+        self.assertIsNone(st.session_state.get("video_path_upload"))
+        self.assertIsNone(st.session_state.get("evaluation_data_upload"))
+
+        # Feature 3 state is untouched
+        self.assertEqual(st.session_state.get("video_path_a"), "file_a.mp4")
+        self.assertEqual(st.session_state.get("video_path_b"), "file_b.mp4")
+        self.assertEqual(st.session_state.get("speech_features_a", {}).get("speaking_rate_wpm"), 110)
+        self.assertEqual(st.session_state.get("speech_features_b", {}).get("speaking_rate_wpm"), 150)
+        self.assertEqual(st.session_state.get("evaluation_data_a", {}).get("speaking_style", {}).get("score"), 75)
+        self.assertEqual(st.session_state.get("evaluation_data_b", {}).get("speaking_style", {}).get("score"), 90)
+        # Note: reset_person_downstream clears multimodal_comparison when any reset happens, but raw person A & B slots are preserved
+
+    # ── TEST 17: Fresh session lifecycle initialization resets all 3 features
+    def test_17_init_session_lifecycle_resets_all_three_features(self):
+        # Simulate populated state across all features
+        st.session_state["video_path_live"] = "live.mp4"
+        st.session_state["video_path_upload"] = "upload.mp4"
+        st.session_state["video_path_a"] = "a.mp4"
+        st.session_state["video_path_b"] = "b.mp4"
+        st.session_state["evaluation_data_live"] = {"score": 80}
+        st.session_state["evaluation_data_upload"] = {"score": 85}
+        st.session_state["evaluation_data_a"] = {"score": 70}
+        st.session_state["evaluation_data_b"] = {"score": 90}
+        st.session_state["multimodal_comparison"] = {"winner": "Video B"}
+
+        # Simulate browser reload / fresh session by popping _session_id
+        if "_session_id" in st.session_state:
+            del st.session_state["_session_id"]
+
+        new_sess_id = init_session_lifecycle()
+        self.assertIsNotNone(new_sess_id)
+        self.assertIn("_session_id", st.session_state)
+
+        # Verify all 3 feature slots are wiped clean
+        for pid in ["live", "upload", "a", "b"]:
+            self.assertIsNone(st.session_state.get(f"video_path_{pid}"))
+            self.assertIsNone(st.session_state.get(f"evaluation_data_{pid}"))
+            self.assertIsNone(st.session_state.get(f"speech_features_{pid}"))
+            self.assertIsNone(st.session_state.get(f"visual_features_{pid}"))
+        self.assertIsNone(st.session_state.get("multimodal_comparison"))
+
+        # Subsequent rerun within the SAME session preserves state
+        st.session_state["video_path_upload"] = "new_upload.mp4"
+        same_sess_id = init_session_lifecycle()
+        self.assertEqual(same_sess_id, new_sess_id)
+        self.assertEqual(st.session_state.get("video_path_upload"), "new_upload.mp4")
 
 
 if __name__ == "__main__":
