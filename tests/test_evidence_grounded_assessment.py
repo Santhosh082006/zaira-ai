@@ -175,8 +175,10 @@ class TestEvidenceGroundedAssessment(unittest.TestCase):
         res = compute_deterministic_scores("Performer", "Test transcript.", None, None, visual, self.profile)
         bl = res[CAT_BODY_LANGUAGE]
 
-        self.assertIn("117.4 movements/min", bl["assessment"])
-        self.assertIn("15-35", bl["assessment"])
+        self.assertIn("head movement", bl["assessment"].lower())
+        self.assertIn("intentional", bl["assessment"].lower())
+        self.assertIn("117.4 movements/min", bl["evidence_observation"])
+        self.assertIn("15-35", bl["evidence_observation"])
         self.assertNotIn("nervous", json.dumps(bl).lower())
         self.assertNotIn("deception", json.dumps(bl).lower())
         self.assertNotIn("uncomfortable", json.dumps(bl).lower())

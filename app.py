@@ -542,9 +542,7 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
 
                     st.markdown(f"##### {title} — {score_display}")
                     if v.get("assessment"):
-                        st.write(f"**Assessment:** {v.get('assessment')}")
-                    if v.get("evidence_observation"):
-                        st.caption(f"**Evidence / Observation:** {v.get('evidence_observation')}")
+                        st.write(v.get("assessment"))
 
                     c_str, c_imp = st.columns(2)
                     with c_str:
@@ -558,7 +556,13 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
 
                     rec = v.get("practical_recommendation")
                     if rec and str(rec).strip().upper() != "N/A":
-                        st.info(f"💡 **Actionable Recommendation:** {rec}")
+                        st.info(f"💡 **Try this:** {rec}")
+
+                    obs_text = v.get("evidence_observation")
+                    if obs_text:
+                        if not obs_text.lower().startswith("supporting data:"):
+                            obs_text = f"Supporting data: {obs_text}"
+                        st.caption(f"📊 {obs_text}")
 
         # 4. Overall Performance Summary
         st.markdown("---")

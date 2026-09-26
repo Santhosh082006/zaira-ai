@@ -63,29 +63,35 @@ def evaluate_visual_performance(
 
     if m_min <= hm_rate <= m_max:
         posture_score = 94.0
-        bl_obs = f"Head movement was measured at {hm_rate:.1f}/min, within the configured {m_min:.0f}-{m_max:.0f}/min reference range."
-        bl_went_well = f"Head movement was measured at {hm_rate:.1f}/min, within the configured {m_min:.0f}-{m_max:.0f}/min reference range."
-        bl_improv = "Maintain this controlled head movement baseline across extended speaking turns."
+        bl_assessment = "Your head movement was natural and balanced while speaking. Some movement is natural and makes your delivery feel expressive, and your posture stayed engaged without distracting motion."
+        bl_went_well = "Your head movement was steady and naturally supported your speech."
+        bl_improv = "Continue using intentional head movement to highlight main transitions in longer presentations."
+        bl_rec = "Keep this natural balance, using deliberate nods or movement only when highlighting important points."
     elif hm_rate < m_min:
         # Very low movement — still composed, slight stiffness penalty if near zero
         posture_score = max(78.0, 92.0 - (m_min - hm_rate) * 1.0)
-        bl_obs = f"Minimal head movement was observed at {hm_rate:.1f} movements/min, below the configured {m_min:.0f}-{m_max:.0f}/min reference range."
-        bl_went_well = "Face visibility remained consistent during the analyzed portion."
-        bl_improv = f"Allow subtle natural head movement shifts to accompany key emphasized points (measured: {hm_rate:.1f}/min, reference: {m_min:.0f}-{m_max:.0f}/min)."
+        bl_assessment = "You remained very still with minimal head movement throughout your delivery. While this shows composure, adding slight natural movement can make your delivery feel more relaxed and conversational."
+        bl_went_well = "You maintained steady composure and consistent camera presence throughout."
+        bl_improv = "Allow subtle, natural head shifts when transitioning between ideas so your delivery feels relaxed rather than rigid."
+        bl_rec = "Allow slight, natural head nods when introducing new ideas so your delivery feels comfortable and expressive."
     else:
         # High movement frequency
         excess = hm_rate - m_max
         penalty_rate = 1.6 if hm_rate > p_thresh else 1.1
         posture_score = max(35.0, 94.0 - (excess * penalty_rate))
-        bl_obs = f"Frequent head movement was observed at {hm_rate:.1f} movements/min, above the configured {m_min:.0f}-{m_max:.0f}/min reference range."
-        bl_went_well = "Face visibility remained consistent during the analyzed portion."
-        bl_improv = f"Head movement was measured at {hm_rate:.1f}/min, above the configured {m_min:.0f}-{m_max:.0f}/min reference range. Practice keeping head movement more controlled during key points."
+        bl_assessment = "You used a lot of head movement while speaking. Some movement is natural and can make your delivery feel expressive, but the amount observed was quite high. Making your movements more intentional could make your presentation feel more controlled."
+        bl_went_well = "Your face visibility remained consistent and your delivery felt active and expressive."
+        bl_improv = "Make your head movements more intentional rather than continuous, helping your audience focus on your message."
+        bl_rec = "Don't try to stay completely still. Instead, use head movement when it naturally supports your point and reduce repeated movement when it doesn't."
 
     # Face presence modifier on body language
     if face_ratio < 0.85:
         posture_score -= (0.85 - face_ratio) * 40.0
+        bl_assessment += " You also moved outside the camera frame at times; keeping centered will ensure continuous connection with your audience."
 
     final_bl_score = int(round(max(35.0, min(96.0, posture_score))))
+
+    bl_evidence = f"Supporting data: {hm_rate:.1f} movements/min (reference: {m_min:.0f}-{m_max:.0f}/min) | Face presence: {face_ratio:.0%} | Blinks: {blinks}"
 
     body_language = {
         "score": final_bl_score,
@@ -93,11 +99,11 @@ def evaluate_visual_performance(
         "head_movement_rate_per_min": round(hm_rate, 1),
         "face_presence_ratio": round(face_ratio, 2),
         "blink_count": blinks,
-        "assessment": f"Face visibility was {face_ratio:.0%} during the analyzed portion. {bl_obs}",
-        "evidence_observation": f"Face presence: {face_ratio:.0%} | Head movements: {hm_count} ({hm_rate:.1f}/min, reference: {m_min:.0f}-{m_max:.0f}/min) | Blinks: {blinks}",
+        "assessment": bl_assessment,
+        "evidence_observation": bl_evidence,
         "what_went_well": bl_went_well,
         "what_needs_improvement": bl_improv,
-        "practical_recommendation": "Keep the camera positioned directly in front of you at eye level approximately an arm's length away."
+        "practical_recommendation": bl_rec
     }
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -113,18 +119,26 @@ def evaluate_visual_performance(
     final_eng_score = int(round(max(35.0, min(96.0, raw_eng))))
 
     if face_ratio >= 0.90:
-        eng_improv = "Maintain consistent forward-facing alignment within the camera frame throughout the session."
+        eng_assessment = "You maintained consistent camera face visibility throughout your delivery. Staying centered in the frame helps your listeners feel connected and focused on what you are saying."
+        eng_went_well = f"Face visibility was consistent during {face_ratio:.0%} of the analyzed portion."
+        eng_improv = "Maintain this centered framing and keep your camera at eye level."
+        eng_rec = "Position your camera directly at eye level about an arm's length away so your gaze stays naturally directed forward."
     else:
-        eng_improv = f"Face visibility was {face_ratio:.0%}. Keep face continuously framed within the camera viewport."
+        eng_assessment = "Your face dipped out of the camera frame at points during the recording. Keeping yourself continuously centered in frame ensures your audience stays connected to your delivery."
+        eng_went_well = f"Face visibility was captured during {face_ratio:.0%} of the analyzed portion."
+        eng_improv = "Keep your face continuously framed within the camera viewport throughout your delivery."
+        eng_rec = "Adjust your chair or camera height so your face remains in the upper-middle third of the frame without drifting off-camera."
+
+    eng_evidence = f"Supporting data: {face_ratio:.0%} face visibility | Tracking reliability: {reliability} (metric reflects camera face presence)"
 
     engagement = {
         "score": final_eng_score,
         "face_presence_ratio": round(face_ratio, 2),
-        "assessment": f"Face visibility was consistent during {face_ratio:.0%} of the analyzed portion under {profile.name} criteria.",
-        "evidence_observation": f"Face presence ratio: {face_ratio:.0%} | Visual tracking reliability: {reliability} (metric reflects camera face presence).",
-        "what_went_well": f"Face visibility was consistent during the analyzed portion ({face_ratio:.0%}).",
+        "assessment": eng_assessment,
+        "evidence_observation": eng_evidence,
+        "what_went_well": eng_went_well,
         "what_needs_improvement": eng_improv,
-        "practical_recommendation": "Position the camera directly in front of you at eye level so face visibility remains uninterrupted."
+        "practical_recommendation": eng_rec
     }
 
     return body_language, engagement

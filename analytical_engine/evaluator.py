@@ -106,21 +106,21 @@ def compute_deterministic_scores(
         conf_score = int(round(sum(valid_behavioral_scores) / len(valid_behavioral_scores)))
         wpm_val = speech_feats.get("speaking_rate_wpm") if speech_feats else None
         pauses_val = speech_feats.get("pause_count") if speech_feats else None
-        wpm_str = f"{wpm_val:.0f} WPM" if wpm_val is not None else "a steady speaking pace"
+        wpm_str = f"a speaking pace of {wpm_val:.0f} WPM" if wpm_val is not None else "a steady speaking pace"
         pause_str = "no long pauses detected" if pauses_val == 0 else (f"{pauses_val} pauses detected" if pauses_val is not None else "available acoustic tracking")
         
         confidence_indicators = {
             "score": conf_score,
-            "assessment": f"The available presentation signals show a speaking pace of {wpm_str} with {pause_str}. However, confidence as an internal state cannot be determined from these signals alone.",
-            "evidence_observation": f"Presentation delivery indicator ({conf_score}/100) calculated across {len(valid_behavioral_scores)} observable channels. Evaluates presentation delivery composure, not internal emotional state.",
+            "assessment": f"Your presentation delivery was steady and continuous, with {wpm_str} and {pause_str}. While confidence as an internal state cannot be determined from these signals alone, your observable delivery showed calm composure and good control.",
+            "evidence_observation": f"Supporting data: Delivery composure score {conf_score}/100 across {len(valid_behavioral_scores)} observable channels (evaluates observable presentation delivery composure, not internal emotional state).",
             "what_went_well": "Speaking pace and camera framing remained steady throughout the delivery.",
-            "what_needs_improvement": "Anchor central assertions with deliberate pacing rather than increasing delivery speed.",
-            "practical_recommendation": "Pause briefly before delivering central points to support steady presentation delivery."
+            "what_needs_improvement": "Anchor your central statements with deliberate pacing and purposeful pauses to give them extra emphasis.",
+            "practical_recommendation": "Pause for one second right before delivering a key takeaway to give your message natural authority."
         }
     else:
         confidence_indicators = {
             "score": INSUFFICIENT_DATA,
-            "assessment": "Insufficient multimodal behavioral signals to evaluate delivery confidence.",
+            "assessment": "Insufficient multimodal behavioral signals to evaluate delivery composure.",
             "evidence_observation": "Acoustic and visual streams lack sufficient measurable signals.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
@@ -143,22 +143,22 @@ def compute_deterministic_scores(
 
         story_quality = {
             "score": sq_score,
-            "assessment": f"The narrative contains {len(events)} sequential events, {len(claims)} factual claims, and {len(locations)} concrete locations that provide specificity to the account.",
-            "evidence_observation": f"{len(events)} events, {len(claims)} claims, {len(locations)} locations, {len(people)} people referenced in transcript.",
-            "what_went_well": "The narrative contains concrete examples that improve specificity.",
-            "what_needs_improvement": "Incorporate specific timestamps, location context, and sequential transition words to improve narrative chronology.",
-            "practical_recommendation": "Anchor each event with explicit time markers (e.g., 'at 2 PM', 'shortly afterward') and spatial details."
+            "assessment": f"You included several specific details and locations, which made the story more concrete and easier to follow. Clear narrative details help your listener visualize what happened.",
+            "evidence_observation": f"Supporting data: {len(events)} events | {len(claims)} claims | {len(locations)} locations referenced in transcript",
+            "what_went_well": "The narrative contains concrete examples that improve specificity and give substance to your account.",
+            "what_needs_improvement": "Strengthen the chronological sequence so the listener can follow the progression of events effortlessly.",
+            "practical_recommendation": "Keep using specific examples, and connect events with clear sequence markers like 'first', 'then', and 'after that'."
         }
     elif has_text:
         raw_sq = min(75.0, 40.0 + (words * 0.6))
         sq_score = int(round(raw_sq))
         story_quality = {
             "score": sq_score,
-            "assessment": f"Transcript with {words} words captured. Structured narrative points are minimal.",
-            "evidence_observation": f"Raw transcript contains {words} words.",
-            "what_went_well": "Account was successfully captured in text.",
-            "what_needs_improvement": "Add specific time markers and chronological sequence connectors (first, then, afterward).",
-            "practical_recommendation": "Structure the narrative with specific timestamps and locations."
+            "assessment": "You shared a brief overview of your account. Adding more sequential details and specific examples will make your story much richer and easier to follow.",
+            "evidence_observation": f"Supporting data: {words} words captured | Minimal structured event points",
+            "what_went_well": "Your initial account was captured clearly in the transcript.",
+            "what_needs_improvement": "Add specific time markers and chronological sequence connectors (first, then, afterward) to structure the account.",
+            "practical_recommendation": "Walk the listener through what happened step-by-step using phrases like 'First', 'Next', and 'Finally'."
         }
     else:
         story_quality = {
@@ -238,12 +238,40 @@ def evaluate_account_with_explanation(
         )
 
     prompt = f"""
-You are an expert communication and performance analyst evaluating '{person_name}' under the '{profile.name}' context.
+You are an expert, encouraging communication coach evaluating '{person_name}' under the '{profile.name}' context.
 The objective numeric scores have ALREADY been calculated by our deterministic measurement engine:
 {json.dumps(score_summary, indent=2)}
 
-Your task is STRICTLY to write qualitative explanations and recommendations.
+Your task is STRICTLY to write qualitative, warm, human-friendly coaching explanations and recommendations.
 DO NOT change the numerical scores. If a score is "Insufficient Data", keep it as "Insufficient Data" and provide "N/A" for strengths/improvements.
+
+==================================================
+COACHING PHILOSOPHY & STRUCTURE:
+==================================================
+Your review must guide the user with supportive, clear advice:
+MEASURED DATA -> INTERPRETATION -> HUMAN-FRIENDLY EXPLANATION -> PRACTICAL IMPROVEMENT
+
+The main assessment review for each category should answer:
+1. What did I do? (in clear, non-technical terms)
+2. Why might it matter? (impact on listener engagement and clarity)
+3. What can I improve? (focus area)
+4. How should I practice it? ("💡 Try this" actionable technique)
+
+Leave exact numbers (WPM, movement rates, timestamps) for the 'evidence_observation' field (prefixed with 'Supporting data: ...').
+Keep the primary assessment friendly, encouraging, and easy for any student to understand.
+
+BODY LANGUAGE PERSPECTIVE:
+- Head movement is NOT inherently bad, nervous, or uncomfortable. Movement can be natural and expressive.
+- If movement is high: note that movement is natural and expressive, but making it more intentional will make the presentation feel more controlled.
+  Try this: "Don't try to stay completely still. Instead, use head movement when it naturally supports your point and reduce repeated movement when it doesn't."
+
+SPEAKING STYLE PERSPECTIVE:
+- If steady: "Your speaking pace was steady and comfortable, and you didn't have noticeable long pauses. This helped your delivery stay continuous and easy to follow."
+  Try this: "Keep the same comfortable pace, and consider adding short pauses before important points to give them more emphasis."
+
+STORY QUALITY PERSPECTIVE:
+- If detailed: "You included several specific details and locations, which made the story more concrete and easier to follow."
+  Try this: "Keep using specific examples, but make the sequence of events even clearer so the listener can follow the story effortlessly."
 
 ==================================================
 CRITICAL CORE REQUIREMENTS:
@@ -256,14 +284,12 @@ CRITICAL CORE REQUIREMENTS:
    - REMOVE/AVOID phrases such as 'enhances the credibility of the claims', 'believable', 'truthful', 'honest'.
    - Instead use: 'Specific examples provide additional detail to the narrative' or 'The narrative contains concrete examples that improve specificity.'
 6. Do not claim eye contact unless an explicit eye-contact metric is supplied. Face presence != eye contact. Describe it as 'Face visibility was consistent during the analyzed portion.'
-7. Do not claim vocal tone unless tone/prosody metrics are explicitly supplied. Use measured speaking rate ({speech_feats.get('speaking_rate_wpm') if speech_feats else 'N/A'} WPM) and pause count.
+7. Do not claim vocal tone unless tone/prosody metrics are explicitly supplied. Use measured speaking pace and pauses.
 8. Do not claim hesitation unless hesitation is explicitly represented by measured speech signals.
-9. Do not claim confidence as a psychological state. The section evaluates observable presentation delivery signals only (e.g. 'The available presentation signals show a steady speaking pace of X WPM with no long pauses detected. However, confidence as an internal state cannot be determined from these signals alone.').
+9. Do not claim confidence as a psychological state. The section evaluates observable presentation delivery signals only (e.g. 'Your presentation delivery was steady and continuous... While confidence as an internal state cannot be determined from these signals alone, your observable delivery showed calm composure.').
 10. The transcript may contain words such as 'liar', 'lying', 'deceive', 'truth', or 'not telling the truth'. These are simply part of the speaker's spoken narrative. Do NOT allow the presence of these words to influence confidence, body language, engagement, or story evaluation. TruthLens analyzes communication performance, not whether someone is lying.
-11. Translate measurements into observable communication-performance feedback only. Every Evidence / Observation statement must be directly traceable to a supplied metric, transcript property, or story-structure property.
-12. If evidence is unavailable, explicitly state that the signal was not available.
-13. Do not use generic filler feedback (e.g., 'Practice confidence', 'Improve body language', 'Be more assertive').
-    Recommendations must follow: MEASUREMENT -> OBSERVATION -> IMPACT ON COMMUNICATION -> ACTION.
+11. If evidence is unavailable, explicitly state that the signal was not available.
+12. Actionable recommendations ('practical_recommendation') must be concrete exercises ("💡 Try this: ...").
 
 CONTEXT GUIDELINES ({profile.name}):
 - {profile.description}
@@ -281,40 +307,40 @@ OUTPUT FORMAT (Strictly Valid JSON only, matching the exact scores provided):
 {{
   "confidence_indicators": {{
     "score": {json.dumps(deterministic_eval['confidence_indicators']['score'])},
-    "assessment": "<string grounded strictly in observable presentation pacing>",
-    "evidence_observation": "<string traceable to measured pacing/framing>",
+    "assessment": "<friendly coaching review explaining observable delivery composure>",
+    "evidence_observation": "Supporting data: <summary of composure channels and metrics>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "body_language": {{
     "score": {json.dumps(deterministic_eval['body_language']['score'])},
-    "assessment": "<string describing observable head movement and face visibility only>",
-    "evidence_observation": "<string with exact movement count and rate/min>",
+    "assessment": "<friendly coaching review explaining head movement and intentional delivery>",
+    "evidence_observation": "Supporting data: <movement count, rate/min, and reference range>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "speaking_style": {{
     "score": {json.dumps(deterministic_eval['speaking_style']['score'])},
-    "assessment": "<string with measured WPM, pauses, and filler words>",
-    "evidence_observation": "<string with measured WPM and pause duration>",
+    "assessment": "<friendly coaching review explaining speaking pace and flow>",
+    "evidence_observation": "Supporting data: <measured WPM, pause count, and fillers>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "engagement": {{
     "score": {json.dumps(deterministic_eval['engagement']['score'])},
-    "assessment": "<string describing camera face presence only; NO eye contact claims>",
-    "evidence_observation": "<string with face presence ratio>",
+    "assessment": "<friendly coaching review explaining camera presence and framing; NO eye contact claims>",
+    "evidence_observation": "Supporting data: <face presence ratio and tracking status>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "story_quality": {{
     "score": {json.dumps(deterministic_eval['story_quality']['score'])},
-    "assessment": "<string evaluating narrative chronology, specificity, and event structure only; NO credibility/truth claims>",
-    "evidence_observation": "<string with event count, claim count, and location details>",
+    "assessment": "<friendly coaching review explaining narrative detail, clarity, and event progression; NO credibility/truth claims>",
+    "evidence_observation": "Supporting data: <event count, claim count, and location details>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
@@ -323,7 +349,8 @@ OUTPUT FORMAT (Strictly Valid JSON only, matching the exact scores provided):
 """
 
     system = (
-        "You are an evidence-grounded communication performance analyst. "
+        "You are an encouraging, evidence-grounded communication coach. "
+        "Provide warm, human-friendly feedback that translates measurements into practical improvements. "
         "Use ONLY explicitly measured data. Never infer psychological states or credibility. "
         "Never claim eye contact or vocal tone unless explicitly provided. "
         "Return strictly valid JSON matching the schema without markdown code blocks."

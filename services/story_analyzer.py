@@ -446,8 +446,8 @@ def _enforce_data_integrity(
         if hm_rate is not None and hm_count is not None:
             bl_item = eval_data.get("body_language", {})
             obs = bl_item.get("evidence_observation", "")
-            if "range" not in obs and "Head movement" not in obs:
-                bl_item["evidence_observation"] = f"Head movements: {hm_count} ({hm_rate:.1f}/min, typical range: 15-35/min) | {obs}".strip(" |")
+            if "range" not in obs and "reference" not in obs and "movement" not in obs.lower() and "supporting data" not in obs.lower():
+                bl_item["evidence_observation"] = f"Supporting data: {hm_rate:.1f} movements/min (reference: 15-35/min) | {obs}".strip(" |")
 
     # 3. Engagement requires camera tracking
     if not has_valid_visual:
@@ -464,7 +464,7 @@ def _enforce_data_integrity(
     if not has_valid_speech and not has_valid_visual:
         eval_data["confidence_indicators"] = {
             "score": "Insufficient Data",
-            "assessment": "Insufficient multimodal behavioral signals to evaluate delivery confidence.",
+            "assessment": "Insufficient multimodal behavioral signals to evaluate delivery composure.",
             "evidence_observation": "Acoustic and visual streams lack sufficient measurable signals.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
@@ -489,8 +489,8 @@ def _enforce_data_integrity(
     sq_imp = str(sq.get("what_needs_improvement", "")).strip().lower()
     
     if ci_imp != "n/a" and sq_imp != "n/a" and (ci_imp == sq_imp or ("claim" in sq_imp and ("evidence" in sq_imp or "support" in sq_imp))):
-        sq["what_needs_improvement"] = "Incorporate specific timestamps, location context, and sequential transition words to improve narrative chronology."
-        sq["practical_recommendation"] = "Anchor each event with explicit time markers (e.g., 'at 2 PM', 'shortly afterward') and spatial details."
+        sq["what_needs_improvement"] = "Strengthen narrative chronology and event transitions so the listener can follow the progression effortlessly."
+        sq["practical_recommendation"] = "Keep using specific examples, and connect events with clear sequence markers like 'first', 'then', and 'after that'."
 
     # Sanitize every field to guarantee strict grounding in measured metrics
     for cat_key, item in eval_data.items():

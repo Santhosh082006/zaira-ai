@@ -89,26 +89,61 @@ def evaluate_vocal_performance(
     raw_final = wpm_score - pause_penalty - filler_penalty
     final_score = int(round(max(35.0, min(96.0, raw_final))))
 
-    # Observations and advice based strictly on measurements
-    if fillers > 2:
-        improv = f"Reduce filler words ({fillers} detected, {fillers_per_min:.1f}/min) and smooth phrasing."
+    # Human-friendly coaching review answering:
+    # 1. What did I do? (in clear, non-technical terms)
+    # 2. Why might it matter? (impact on listener engagement)
+    # 3. What can I improve? (focus area)
+    # 4. How should I practice it? ("Try this" actionable technique)
+
+    # Primary Assessment (What did I do & why it matters)
+    if t_min <= wpm <= t_max:
+        if pauses == 0 and duration >= 10.0:
+            assessment = "Your speaking pace was steady and comfortable, and you didn't have noticeable long pauses. This helped your delivery stay continuous and easy to follow."
+        else:
+            assessment = "Your speaking pace was steady and comfortable, giving your listener time to absorb your thoughts while keeping the delivery active and engaging."
     elif wpm < t_min:
-        improv = f"Increase speaking tempo toward the target {t_min:.0f}-{t_max:.0f} WPM range for {profile.name}."
+        assessment = "You spoke at an unhurried, deliberate pace. While a deliberate cadence can make ideas clear, picking up the tempo slightly will keep your listeners engaged and maintain dynamic momentum."
+    else:
+        assessment = "You spoke at a brisk, energetic pace. While this conveys enthusiasm, slowing your pace slightly will give your listeners more time to absorb key points."
+
+    # What went well (Strengths)
+    if pauses == 0 and duration >= 10.0:
+        went_well = "Your speaking pace was steady and comfortable, providing a continuous delivery without noticeable long pauses."
+    elif t_min <= wpm <= t_max:
+        went_well = "Your speaking pace was well-paced and conversational, making your points easy to absorb."
+    elif wpm < t_min:
+        went_well = "Your words were delivered deliberately and articulated clearly without rushing."
+    else:
+        went_well = "Your delivery maintained strong momentum and energetic forward pacing."
+
+    # What needs improvement (Focus Area)
+    if fillers > 2:
+        improv = f"Vocal filler words were used frequently ({fillers} detected). Replacing them with silent pauses will make your delivery sound cleaner and more polished."
+    elif wpm < t_min:
+        improv = f"Increase your speaking momentum toward a conversational tempo ({t_min:.0f}-{t_max:.0f} WPM) to keep the presentation engaging."
     elif wpm > t_max:
-        improv = f"Moderate speaking pace down toward the target {t_min:.0f}-{t_max:.0f} WPM range."
+        improv = f"Ease your speaking tempo slightly toward a conversational pace ({t_min:.0f}-{t_max:.0f} WPM) so listeners can absorb complex thoughts effortlessly."
     elif pause_ratio > 0.30:
-        improv = "Tighten transitions between thoughts to reduce extended silent pauses."
+        improv = "Transitions between thoughts had longer silent gaps than needed. Smoothing these transitions will keep your narrative flowing effortlessly."
     elif pauses == 0 and duration >= 10.0:
         improv = "No long pauses were detected, so deliberate strategic pauses could be introduced to emphasize important points."
     else:
-        improv = f"Maintain this steady speaking pace ({wpm:.0f} WPM) and delivery pacing."
+        improv = "Maintain this comfortable, steady speaking pace across longer presentations."
 
-    if pauses == 0 and duration >= 10.0:
-        went_well = f"Speaking pace was measured at {wpm:.0f} WPM, providing a continuous delivery."
-    elif final_score >= 82:
-        went_well = f"Measured speaking rate was {wpm:.0f} WPM, aligned with target {t_min:.0f}-{t_max:.0f} WPM range."
+    # Practical recommendation ("💡 Try this")
+    if fillers > 2:
+        rec = "When you feel the urge to say a filler word like 'um' or 'uh', take a silent breath instead before speaking the next phrase."
+    elif wpm < t_min:
+        rec = "Practice speaking with slightly more forward energy, linking connected thoughts together without stopping between every phrase."
+    elif wpm > t_max:
+        rec = "Take a relaxed breath after completing a major thought to naturally pace your delivery and give listeners a moment to reflect."
+    elif pauses == 0 and duration >= 10.0:
+        rec = "Keep the same comfortable pace, and consider adding short pauses before important points to give them more emphasis."
     else:
-        went_well = f"Measured speaking rate was {wpm:.0f} WPM with clear acoustic tracking."
+        rec = "Keep this steady pace, and use brief strategic pauses right before key points to make them stand out."
+
+    pause_desc = "no long pauses detected" if pauses == 0 else f"{pauses} pauses ({pause_sec:.1f}s)"
+    evidence_obs = f"Supporting data: {wpm:.0f} WPM (target: {t_min:.0f}-{t_max:.0f} WPM) | {pause_desc} | Fillers: {fillers}"
 
     return {
         "score": final_score,
@@ -118,9 +153,9 @@ def evaluate_vocal_performance(
         "pause_duration_sec": round(pause_sec, 1),
         "filler_count": fillers,
         "filler_rate_per_min": round(fillers_per_min, 1),
-        "assessment": f"The measured speaking rate was {wpm:.0f} WPM with {pauses} pauses ({pause_sec:.1f}s) and {fillers} filler words under {profile.name} criteria.",
-        "evidence_observation": f"Speaking rate: {wpm:.0f} WPM (target: {t_min:.0f}-{t_max:.0f}) | Pauses: {pauses} ({pause_sec:.1f}s) | Fillers: {fillers}",
+        "assessment": assessment,
+        "evidence_observation": evidence_obs,
         "what_went_well": went_well,
         "what_needs_improvement": improv,
-        "practical_recommendation": "Use brief silent breaths rather than vocal fillers when moving between thoughts."
+        "practical_recommendation": rec
     }
