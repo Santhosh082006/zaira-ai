@@ -352,6 +352,57 @@ def evaluate_individual_account(
 
 
 
+def _sanitize_assessment_text(text: str) -> str:
+    """
+    Sanitize text to guarantee that unmeasured signals or psychological/deception
+    inferences are strictly scrubbed and replaced with grounded presentation language.
+    """
+    if not text or not isinstance(text, str) or text.strip().upper() == "N/A":
+        return text
+
+    # 1. Strip eye contact claims (eye contact is unmeasured; face presence != eye contact)
+    text = re.sub(r"\b(?:speaker\s+)?maintains?\s+(?:strong\s+|steady\s+|good\s+|direct\s+)?eye\s*contact\b", "maintains camera face visibility", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:strong|stable|steady|consistent|good|direct)\s+eye\s*contact(?:\s+consistency|\s+maintenance)?\b", "consistent face visibility", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:weak|poor|lack\s+of|irregular)\s+eye\s*contact\b", "reduced face visibility", text, flags=re.IGNORECASE)
+    text = re.sub(r"\beye\s*contact\b", "camera face visibility", text, flags=re.IGNORECASE)
+
+    # 2. Strip vocal tone claims (tone/prosody is unmeasured)
+    text = re.sub(r"\bconversational\s+tone\b", "conversational speaking pace", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:tone\s+is\s+steady|steady\s+tone|consistent\s+tone)\b", "speaking pace is steady", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:calm|measured)\s+tone\b", "measured speaking pace", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bvocal\s+tone\b", "speaking rate", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bmonotone\b", "uniform pacing", text, flags=re.IGNORECASE)
+
+    # 3. Strip unmeasured hesitation claims
+    text = re.sub(r"\bmoments\s+where\s+hesitance\s+is\s+noticeable\b", "measured pauses between statements", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:noticeable\s+)?hesitan(?:ce|cy)\b", "pause duration", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bhesitant\b", "deliberate in pacing", text, flags=re.IGNORECASE)
+
+    # 4. Strip psychological emotion/confidence claims (observable signals only)
+    text = re.sub(r"\b(?:the\s+)?speaker\s+demonstrates?\s+(?:moderate|high|strong)\s+confidence\b", "The speaker maintains steady presentation delivery", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:the\s+)?speaker\s+is\s+confident\b", "The speaker maintains a steady speaking pace", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:the\s+)?speaker\s+(?:lacks?\s+confidence|is\s+nervous|sounds?\s+nervous|sounds?\s+uncertain)\b", "presentation delivery shows pacing variations", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bindicates?\s+(?:nervousness|deception|lack\s+of\s+confidence)\b", "reflects pacing or movement frequency", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bappears?\s+uncomfortable\b", "shows frequent movement shifts", text, flags=re.IGNORECASE)
+
+    # 5. Strip credibility, truthfulness, and deception claims
+    text = re.sub(r"\benhances?\s+the\s+credibility\s+of\s+the\s+claims(?:\s+made)?\b", "provides additional detail to the narrative", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bcredibility\s+of\s+the\s+claims\b", "detail of the claims", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:enhances?|improves?)\s+(?:the\s+)?credibility\b", "improves narrative specificity", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bcredibility\b", "specificity", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bcredible\b", "specific", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bbelievable\b", "detailed", text, flags=re.IGNORECASE)
+    text = re.sub(r"\btruthfulness\b", "narrative structure", text, flags=re.IGNORECASE)
+    text = re.sub(r"\btruthful\b", "structured", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bdeceptive\b", "divergent", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bdeception\b", "discrepancy", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:lying|liar)\b", "inconsistent statement", text, flags=re.IGNORECASE)
+
+    # Clean up any double spaces introduced by replacements
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text
+
+
 def _enforce_data_integrity(
     eval_data: dict,
     has_valid_speech: bool,
@@ -362,7 +413,8 @@ def _enforce_data_integrity(
 ) -> dict:
     """
     Structurally enforce that categories with missing prerequisite signals
-    cannot have hallucinated scores or advice. Also prevents duplicate advice across categories.
+    cannot have hallucinated scores or advice. Also prevents duplicate advice across categories
+    and sanitizes all qualitative statements to ensure strictly evidence-grounded language.
     """
     if not isinstance(eval_data, dict):
         eval_data = {}
@@ -401,8 +453,8 @@ def _enforce_data_integrity(
     if not has_valid_visual:
         eval_data["engagement"] = {
             "score": "Insufficient Data",
-            "assessment": "Engagement signals require active camera tracking to measure eye contact consistency.",
-            "evidence_observation": "No facial landmark stream available to evaluate camera attention.",
+            "assessment": "Engagement signals require active camera tracking to measure face visibility.",
+            "evidence_observation": "No facial landmark stream available to evaluate camera face presence.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
             "practical_recommendation": "Position yourself centered in the camera viewport with clear lighting."
@@ -439,6 +491,13 @@ def _enforce_data_integrity(
     if ci_imp != "n/a" and sq_imp != "n/a" and (ci_imp == sq_imp or ("claim" in sq_imp and ("evidence" in sq_imp or "support" in sq_imp))):
         sq["what_needs_improvement"] = "Incorporate specific timestamps, location context, and sequential transition words to improve narrative chronology."
         sq["practical_recommendation"] = "Anchor each event with explicit time markers (e.g., 'at 2 PM', 'shortly afterward') and spatial details."
+
+    # Sanitize every field to guarantee strict grounding in measured metrics
+    for cat_key, item in eval_data.items():
+        if isinstance(item, dict):
+            for field in ("assessment", "evidence_observation", "what_went_well", "what_needs_improvement", "practical_recommendation"):
+                if field in item and isinstance(item[field], str):
+                    item[field] = _sanitize_assessment_text(item[field])
 
     # Ensure any category with "Insufficient Data" has "N/A" for what_went_well and what_needs_improvement
     for k, item in eval_data.items():

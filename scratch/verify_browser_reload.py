@@ -56,10 +56,54 @@ def _mock_transcribe(*args, **kwargs):
     return "I arrived at the headquarters to present our quarterly roadmap and lead the team."
 
 
+def _mock_demux(video_path, output_audio_path=None):
+    if output_audio_path:
+        os.makedirs(os.path.dirname(os.path.abspath(output_audio_path)), exist_ok=True)
+        with open(output_audio_path, "wb") as f:
+            f.write(b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
+        return True, None
+    return True, None
+
+
+def _mock_story_facts(transcript="", person_name=""):
+    return {
+        "person": person_name,
+        "summary": "Account summary",
+        "extraction_confidence": "high",
+        "events": [
+            {
+                "event_id": 1,
+                "sequence": 1,
+                "time": "9:00 AM",
+                "location": "Headquarters",
+                "description": "Presented quarterly roadmap",
+                "source_text": transcript
+            }
+        ],
+        "claims": [
+            {
+                "claim_id": 1,
+                "subject": "Roadmap",
+                "attribute": "presented",
+                "value": "Team",
+                "source_text": transcript
+            }
+        ],
+        "all_people_mentioned": ["Team"],
+        "all_locations_mentioned": ["Headquarters"],
+        "all_times_mentioned": ["9:00 AM"],
+        "all_dates_mentioned": []
+    }
+
+
+@patch("processors.ingestion.video_demuxer.demux_video_to_audio", side_effect=_mock_demux)
+@patch("services.story_analyzer.extract_story_facts", side_effect=_mock_story_facts)
+@patch("app.get_whisper_model", return_value="mock_model")
+@patch("services.llm_provider.call_llm", side_effect=RuntimeError("Offline test mode"))
 @patch("services.visual_features.extract_visual_features", side_effect=_mock_visual_features)
 @patch("services.speech_features.extract_speech_features", side_effect=_mock_speech_features)
 @patch("services.speech_to_text.transcribe_audio", side_effect=_mock_transcribe)
-def test_three_features_and_session_lifecycle(mock_trans, mock_spk, mock_vis):
+def test_three_features_and_session_lifecycle(mock_trans, mock_spk, mock_vis, mock_llm, mock_whisper, mock_story, mock_demux):
     print("=" * 70)
     print("RUNNING COMPLETE ACCEPTANCE SUITE: THREE FEATURES & SESSION ISOLATION")
     print("=" * 70)
@@ -68,7 +112,7 @@ def test_three_features_and_session_lifecycle(mock_trans, mock_spk, mock_vis):
     # ACCEPTANCE TEST 1: Initial Fresh Browser Session & Exactly 3 Primary Features
     # ─────────────────────────────────────────────────────────────────────────
     print("\n--- TEST 1: Fresh Session & Exactly 3 Sidebar Navigation Options ---")
-    at1 = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=30).run()
+    at1 = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=60).run()
     assert not at1.exception, f"App crashed on startup: {at1.exception}"
 
     # Radio must show strictly the three primary features
@@ -126,7 +170,7 @@ def test_three_features_and_session_lifecycle(mock_trans, mock_spk, mock_vis):
     # ACCEPTANCE TEST 3: Individual Video Analysis -> Upload ONE video -> Analyze
     # ─────────────────────────────────────────────────────────────────────────
     print("\n--- TEST 3: Individual Video Analysis Workflow ---")
-    at_ind = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=30).run()
+    at_ind = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=60).run()
     at_ind.sidebar.radio[0].set_value("📁 Individual Video Analysis").run()
     assert not at_ind.exception
     titles = [t.value for t in at_ind.title]
@@ -175,7 +219,7 @@ def test_three_features_and_session_lifecycle(mock_trans, mock_spk, mock_vis):
     # ACCEPTANCE TEST 5: Compare & Assess Workflow (Video A + B -> Independent -> Comparison)
     # ─────────────────────────────────────────────────────────────────────────
     print("\n--- TEST 5: Compare & Assess Workflow ---")
-    at_comp = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=30).run()
+    at_comp = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=60).run()
     at_comp.sidebar.radio[0].set_value("⚖️ Compare & Assess").run()
     assert not at_comp.exception
 
@@ -219,7 +263,7 @@ def test_three_features_and_session_lifecycle(mock_trans, mock_spk, mock_vis):
     # ACCEPTANCE TEST 7: Browser Reload Starts Fresh Across All 3 Workflows
     # ─────────────────────────────────────────────────────────────────────────
     print("\n--- TEST 7: Browser Reload Starts Clean Across All Features ---")
-    at_fresh = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=30).run()
+    at_fresh = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=60).run()
     assert not at_fresh.exception
     # Check all slots
     assert at_fresh.session_state["video_path_live"] is None

@@ -63,20 +63,23 @@ def evaluate_visual_performance(
 
     if m_min <= hm_rate <= m_max:
         posture_score = 94.0
-        posture_label = f"natural and composed ({hm_rate:.1f}/min, within target {m_min:.0f}-{m_max:.0f}/min)"
-        bl_improv = "Maintain this balanced head posture and composure."
+        bl_obs = f"Head movement was measured at {hm_rate:.1f}/min, within the configured {m_min:.0f}-{m_max:.0f}/min reference range."
+        bl_went_well = f"Head movement was measured at {hm_rate:.1f}/min, within the configured {m_min:.0f}-{m_max:.0f}/min reference range."
+        bl_improv = "Maintain this controlled head movement baseline across extended speaking turns."
     elif hm_rate < m_min:
         # Very low movement — still composed, slight stiffness penalty if near zero
         posture_score = max(78.0, 92.0 - (m_min - hm_rate) * 1.0)
-        posture_label = f"very steady and still ({hm_rate:.1f}/min, below target range)"
-        bl_improv = "Allow subtle natural head gestures to accompany emphasized points."
+        bl_obs = f"Minimal head movement was observed at {hm_rate:.1f} movements/min, below the configured {m_min:.0f}-{m_max:.0f}/min reference range."
+        bl_went_well = "Face visibility remained consistent during the analyzed portion."
+        bl_improv = f"Allow subtle natural head movement shifts to accompany key emphasized points (measured: {hm_rate:.1f}/min, reference: {m_min:.0f}-{m_max:.0f}/min)."
     else:
         # High movement frequency
         excess = hm_rate - m_max
         penalty_rate = 1.6 if hm_rate > p_thresh else 1.1
         posture_score = max(35.0, 94.0 - (excess * penalty_rate))
-        posture_label = f"frequent head movement shifts ({hm_rate:.1f}/min, above target {m_min:.0f}-{m_max:.0f}/min)"
-        bl_improv = f"Keep head posture centered and steady when delivering primary statements in a {profile.name}."
+        bl_obs = f"Frequent head movement was observed at {hm_rate:.1f} movements/min, above the configured {m_min:.0f}-{m_max:.0f}/min reference range."
+        bl_went_well = "Face visibility remained consistent during the analyzed portion."
+        bl_improv = f"Head movement was measured at {hm_rate:.1f}/min, above the configured {m_min:.0f}-{m_max:.0f}/min reference range. Practice keeping head movement more controlled during key points."
 
     # Face presence modifier on body language
     if face_ratio < 0.85:
@@ -90,18 +93,18 @@ def evaluate_visual_performance(
         "head_movement_rate_per_min": round(hm_rate, 1),
         "face_presence_ratio": round(face_ratio, 2),
         "blink_count": blinks,
-        "assessment": f"Facial landmarks remained visible ({face_ratio:.0%} presence). Head posture was {posture_label} under {profile.name} criteria.",
-        "evidence_observation": f"Face presence: {face_ratio:.0%} | Head movements: {hm_count} ({hm_rate:.1f}/min, target: {m_min:.0f}-{m_max:.0f}/min) | Blinks: {blinks}",
-        "what_went_well": "Maintained composed posture and alignment within the camera frame." if final_bl_score >= 75 else "Face tracked consistently across active video frames.",
+        "assessment": f"Face visibility was {face_ratio:.0%} during the analyzed portion. {bl_obs}",
+        "evidence_observation": f"Face presence: {face_ratio:.0%} | Head movements: {hm_count} ({hm_rate:.1f}/min, reference: {m_min:.0f}-{m_max:.0f}/min) | Blinks: {blinks}",
+        "what_went_well": bl_went_well,
         "what_needs_improvement": bl_improv,
-        "practical_recommendation": "Position camera at eye level approximately an arm's length away."
+        "practical_recommendation": "Keep the camera positioned directly in front of you at eye level approximately an arm's length away."
     }
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2. ENGAGEMENT & CAMERA PRESENCE EVALUATION
     # ─────────────────────────────────────────────────────────────────────────
     # Derived directly from face presence ratio and visual continuity
-    # Perfect presence (1.0) -> high engagement, drops linearly as face leaves frame
+    # Note: Eye contact is unmeasured by the current visual pipeline; metric reflects camera face visibility.
     base_eng = face_ratio * 92.0
 
     # Small stability bonus if movement was not excessively distracting
@@ -110,18 +113,18 @@ def evaluate_visual_performance(
     final_eng_score = int(round(max(35.0, min(96.0, raw_eng))))
 
     if face_ratio >= 0.90:
-        eng_improv = "Maintain steady gaze alignment directly with the camera lens when closing key statements."
+        eng_improv = "Maintain consistent forward-facing alignment within the camera frame throughout the session."
     else:
-        eng_improv = f"Increase continuous camera framing (currently {face_ratio:.0%}) to maximize viewer connection."
+        eng_improv = f"Face visibility was {face_ratio:.0%}. Keep face continuously framed within the camera viewport."
 
     engagement = {
         "score": final_eng_score,
         "face_presence_ratio": round(face_ratio, 2),
-        "assessment": f"Direct camera presence maintained throughout {face_ratio:.0%} of the session with active visual responsiveness.",
-        "evidence_observation": f"Face presence ratio: {face_ratio:.0%} | Landmark continuity: {reliability}",
-        "what_went_well": f"Continuous camera presence and forward-facing engagement ({face_ratio:.0%}).",
+        "assessment": f"Face visibility was consistent during {face_ratio:.0%} of the analyzed portion under {profile.name} criteria.",
+        "evidence_observation": f"Face presence ratio: {face_ratio:.0%} | Visual tracking reliability: {reliability} (metric reflects camera face presence).",
+        "what_went_well": f"Face visibility was consistent during the analyzed portion ({face_ratio:.0%}).",
         "what_needs_improvement": eng_improv,
-        "practical_recommendation": "Look directly at the webcam lens rather than your own preview window."
+        "practical_recommendation": "Position the camera directly in front of you at eye level so face visibility remains uninterrupted."
     }
 
     return body_language, engagement

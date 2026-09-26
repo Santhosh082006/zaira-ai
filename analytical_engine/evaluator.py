@@ -104,13 +104,18 @@ def compute_deterministic_scores(
 
     if valid_behavioral_scores:
         conf_score = int(round(sum(valid_behavioral_scores) / len(valid_behavioral_scores)))
+        wpm_val = speech_feats.get("speaking_rate_wpm") if speech_feats else None
+        pauses_val = speech_feats.get("pause_count") if speech_feats else None
+        wpm_str = f"{wpm_val:.0f} WPM" if wpm_val is not None else "a steady speaking pace"
+        pause_str = "no long pauses detected" if pauses_val == 0 else (f"{pauses_val} pauses detected" if pauses_val is not None else "available acoustic tracking")
+        
         confidence_indicators = {
             "score": conf_score,
-            "assessment": f"Observable behavioral signals reflect steady delivery composure across {len(valid_behavioral_scores)} analyzed modalities.",
-            "evidence_observation": f"Calculated across {len(valid_behavioral_scores)} observable behavioral channels (mean rating: {conf_score}/100).",
-            "what_went_well": "Consistent vocal and physical presence during delivery.",
-            "what_needs_improvement": "Minimize verbal hedges (e.g., 'maybe', 'I guess') and anchor key assertions with steady delivery.",
-            "practical_recommendation": "Pause briefly before delivering central points to convey composure."
+            "assessment": f"The available presentation signals show a speaking pace of {wpm_str} with {pause_str}. However, confidence as an internal state cannot be determined from these signals alone.",
+            "evidence_observation": f"Presentation delivery indicator ({conf_score}/100) calculated across {len(valid_behavioral_scores)} observable channels. Evaluates presentation delivery composure, not internal emotional state.",
+            "what_went_well": "Speaking pace and camera framing remained steady throughout the delivery.",
+            "what_needs_improvement": "Anchor central assertions with deliberate pacing rather than increasing delivery speed.",
+            "practical_recommendation": "Pause briefly before delivering central points to support steady presentation delivery."
         }
     else:
         confidence_indicators = {
@@ -138,9 +143,9 @@ def compute_deterministic_scores(
 
         story_quality = {
             "score": sq_score,
-            "assessment": f"Account exhibits clear chronological structure with {len(events)} events, {len(claims)} claims, and {len(locations)} locations.",
-            "evidence_observation": f"{len(events)} events, {len(claims)} claims, {len(locations)} locations, {len(people)} people referenced.",
-            "what_went_well": "Clear sequential narrative with identifiable factual anchors.",
+            "assessment": f"The narrative contains {len(events)} sequential events, {len(claims)} factual claims, and {len(locations)} concrete locations that provide specificity to the account.",
+            "evidence_observation": f"{len(events)} events, {len(claims)} claims, {len(locations)} locations, {len(people)} people referenced in transcript.",
+            "what_went_well": "The narrative contains concrete examples that improve specificity.",
             "what_needs_improvement": "Incorporate specific timestamps, location context, and sequential transition words to improve narrative chronology.",
             "practical_recommendation": "Anchor each event with explicit time markers (e.g., 'at 2 PM', 'shortly afterward') and spatial details."
         }
@@ -207,6 +212,31 @@ def evaluate_account_with_explanation(
     # Format score summary for the LLM
     score_summary = {k: v["score"] for k, v in deterministic_eval.items()}
 
+    # Structured summaries of measurements with units and notes on unmeasured modalities
+    speech_summary = "UNAVAILABLE"
+    if has_valid_speech and speech_feats:
+        wpm = speech_feats.get("speaking_rate_wpm", "N/A")
+        fillers = speech_feats.get("filler_word_count", "N/A")
+        pauses = speech_feats.get("pause_count", "N/A")
+        p_dur = speech_feats.get("total_pause_duration_sec", "N/A")
+        dur = speech_feats.get("duration_seconds", "N/A")
+        speech_summary = (
+            f"Speaking Rate: {wpm} WPM (target reference: {profile.target_wpm_min}-{profile.target_wpm_max} WPM), "
+            f"Filler Words: {fillers}, Pauses: {pauses} (pause duration: {p_dur}s), Duration: {dur}s. "
+            f"NOTE: Tone/prosody is UNMEASURED; Hesitation metric is UNMEASURED."
+        )
+
+    visual_summary = "UNAVAILABLE"
+    if has_valid_visual and visual_feats:
+        face_ratio = visual_feats.get("face_presence_ratio", 1.0)
+        hm_count = visual_feats.get("head_movement_count", 0)
+        hm_rate = visual_feats.get("head_movement_rate_per_min", 0.0)
+        blinks = visual_feats.get("blink_count", 0)
+        visual_summary = (
+            f"Face Presence Ratio: {face_ratio:.0%}, Head Movements: {hm_count} ({hm_rate:.1f}/min, configured reference range: 15-35/min), Blinks: {blinks}. "
+            f"NOTE: Eye-contact metric is UNMEASURED. Face presence != eye contact. Use 'face visibility was consistent'."
+        )
+
     prompt = f"""
 You are an expert communication and performance analyst evaluating '{person_name}' under the '{profile.name}' context.
 The objective numeric scores have ALREADY been calculated by our deterministic measurement engine:
@@ -215,6 +245,26 @@ The objective numeric scores have ALREADY been calculated by our deterministic m
 Your task is STRICTLY to write qualitative explanations and recommendations.
 DO NOT change the numerical scores. If a score is "Insufficient Data", keep it as "Insufficient Data" and provide "N/A" for strengths/improvements.
 
+==================================================
+CRITICAL CORE REQUIREMENTS:
+==================================================
+1. You are evaluating observable communication performance.
+2. Use ONLY evidence explicitly supplied in the structured input.
+3. Never invent observations.
+4. Never infer an internal mental or emotional state. Avoid words like 'nervous', 'confident', 'hesitant', 'uncertain', 'assertive' as internal states.
+5. Never infer deception, truthfulness, honesty, credibility, or lying.
+   - REMOVE/AVOID phrases such as 'enhances the credibility of the claims', 'believable', 'truthful', 'honest'.
+   - Instead use: 'Specific examples provide additional detail to the narrative' or 'The narrative contains concrete examples that improve specificity.'
+6. Do not claim eye contact unless an explicit eye-contact metric is supplied. Face presence != eye contact. Describe it as 'Face visibility was consistent during the analyzed portion.'
+7. Do not claim vocal tone unless tone/prosody metrics are explicitly supplied. Use measured speaking rate ({speech_feats.get('speaking_rate_wpm') if speech_feats else 'N/A'} WPM) and pause count.
+8. Do not claim hesitation unless hesitation is explicitly represented by measured speech signals.
+9. Do not claim confidence as a psychological state. The section evaluates observable presentation delivery signals only (e.g. 'The available presentation signals show a steady speaking pace of X WPM with no long pauses detected. However, confidence as an internal state cannot be determined from these signals alone.').
+10. The transcript may contain words such as 'liar', 'lying', 'deceive', 'truth', or 'not telling the truth'. These are simply part of the speaker's spoken narrative. Do NOT allow the presence of these words to influence confidence, body language, engagement, or story evaluation. TruthLens analyzes communication performance, not whether someone is lying.
+11. Translate measurements into observable communication-performance feedback only. Every Evidence / Observation statement must be directly traceable to a supplied metric, transcript property, or story-structure property.
+12. If evidence is unavailable, explicitly state that the signal was not available.
+13. Do not use generic filler feedback (e.g., 'Practice confidence', 'Improve body language', 'Be more assertive').
+    Recommendations must follow: MEASUREMENT -> OBSERVATION -> IMPACT ON COMMUNICATION -> ACTION.
+
 CONTEXT GUIDELINES ({profile.name}):
 - {profile.description}
 - Speaking guideline: {profile.interpretation_guidelines.get('speaking', '')}
@@ -222,49 +272,49 @@ CONTEXT GUIDELINES ({profile.name}):
 - Story guideline: {profile.interpretation_guidelines.get('story', '')}
 
 DATA AVAILABLE:
-- Transcript: {transcript if transcript else 'MISSING'}
-- Story Extracted: {json.dumps(story_data) if story_data else 'MISSING'}
-- Speech Features: {json.dumps(speech_feats) if has_valid_speech else 'MISSING'}
-- Visual Features: {json.dumps(visual_feats) if has_valid_visual else 'MISSING'}
+- Measured Speech: {speech_summary}
+- Measured Visual: {visual_summary}
+- Extracted Story: {json.dumps(story_data) if story_data else 'UNAVAILABLE'}
+- Spoken Transcript: {transcript if transcript else 'UNAVAILABLE'}
 
 OUTPUT FORMAT (Strictly Valid JSON only, matching the exact scores provided):
 {{
   "confidence_indicators": {{
     "score": {json.dumps(deterministic_eval['confidence_indicators']['score'])},
-    "assessment": "<string>",
-    "evidence_observation": "<string>",
+    "assessment": "<string grounded strictly in observable presentation pacing>",
+    "evidence_observation": "<string traceable to measured pacing/framing>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "body_language": {{
     "score": {json.dumps(deterministic_eval['body_language']['score'])},
-    "assessment": "<string>",
-    "evidence_observation": "<string>",
+    "assessment": "<string describing observable head movement and face visibility only>",
+    "evidence_observation": "<string with exact movement count and rate/min>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "speaking_style": {{
     "score": {json.dumps(deterministic_eval['speaking_style']['score'])},
-    "assessment": "<string>",
-    "evidence_observation": "<string>",
+    "assessment": "<string with measured WPM, pauses, and filler words>",
+    "evidence_observation": "<string with measured WPM and pause duration>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "engagement": {{
     "score": {json.dumps(deterministic_eval['engagement']['score'])},
-    "assessment": "<string>",
-    "evidence_observation": "<string>",
+    "assessment": "<string describing camera face presence only; NO eye contact claims>",
+    "evidence_observation": "<string with face presence ratio>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "story_quality": {{
     "score": {json.dumps(deterministic_eval['story_quality']['score'])},
-    "assessment": "<string>",
-    "evidence_observation": "<string>",
+    "assessment": "<string evaluating narrative chronology, specificity, and event structure only; NO credibility/truth claims>",
+    "evidence_observation": "<string with event count, claim count, and location details>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
@@ -272,7 +322,12 @@ OUTPUT FORMAT (Strictly Valid JSON only, matching the exact scores provided):
 }}
 """
 
-    system = "You are a communication analyst. Return strictly valid JSON matching the schema. No markdown wrapping."
+    system = (
+        "You are an evidence-grounded communication performance analyst. "
+        "Use ONLY explicitly measured data. Never infer psychological states or credibility. "
+        "Never claim eye contact or vocal tone unless explicitly provided. "
+        "Return strictly valid JSON matching the schema without markdown code blocks."
+    )
     from services.llm_provider import call_llm
     from services.story_analyzer import _parse_json_response, _enforce_data_integrity
 
@@ -284,6 +339,11 @@ OUTPUT FORMAT (Strictly Valid JSON only, matching the exact scores provided):
             for cat_key, cat_val in deterministic_eval.items():
                 if cat_key in parsed and isinstance(parsed[cat_key], dict):
                     parsed[cat_key]["score"] = cat_val["score"]
+                    # If LLM returned N/A or empty for valid signals, backfill with evidence-backed deterministic findings
+                    for fld in ("what_went_well", "what_needs_improvement", "practical_recommendation"):
+                        curr_fld = parsed[cat_key].get(fld)
+                        if (not curr_fld or str(curr_fld).strip().upper() == "N/A") and cat_val.get(fld) and cat_val.get(fld) != "N/A":
+                            parsed[cat_key][fld] = cat_val[fld]
             return _enforce_data_integrity(
                 parsed, has_valid_speech, has_valid_visual, has_valid_transcript, has_valid_story, visual_feats
             )

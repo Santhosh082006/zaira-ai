@@ -115,26 +115,26 @@ def get_speech_observations(feats: Optional[Dict[str, Any]]) -> List[str]:
     obs = []
     wpm = feats.get("speaking_rate_wpm")
     if wpm is not None:
-        if wpm < 110:
-            obs.append(f"Speech was relatively slow ({wpm:.0f} WPM), indicating a deliberate speaking pace.")
-        elif wpm > 160:
-            obs.append(f"Fast speaking pace observed ({wpm:.0f} WPM).")
-        else:
-            obs.append(f"Conversational speaking pace ({wpm:.0f} WPM).")
+        obs.append(f"The measured speaking rate was {wpm:.0f} WPM.")
 
     fillers = feats.get("filler_word_count")
     if fillers is not None:
         if fillers == 0:
-            obs.append("Very few filler words detected, indicating clean verbal delivery.")
-        elif fillers > 4:
+            obs.append("Very few filler words were detected.")
+        elif fillers <= 2:
+            obs.append(f"Few filler words were detected ({fillers} instances).")
+        else:
             obs.append(f"Noticeable filler words detected ({fillers} instances).")
 
     pauses = feats.get("pause_count")
+    p_dur = feats.get("total_pause_duration_sec")
     if pauses is not None:
-        if pauses > 2:
-            obs.append("Longer pauses detected between statements.")
-        elif pauses == 0:
-            obs.append("Few or no long pauses detected, reflecting continuous delivery.")
+        if pauses == 0:
+            obs.append("No long pauses were detected.")
+        elif pauses > 2 and p_dur is not None:
+            obs.append(f"Longer pauses detected between statements ({pauses} pauses, {p_dur:.1f}s total).")
+        else:
+            obs.append(f"Longer pauses detected between statements ({pauses} pauses).")
 
     if not obs:
         obs.append("Acoustic features were extracted but no distinct anomalies were flagged.")
@@ -145,24 +145,23 @@ def get_visual_observations(v_feats: Optional[Dict[str, Any]]) -> List[str]:
     """Generate human-readable observations from measured visual tracking."""
     if not v_feats or not v_feats.get("face_detected") or v_feats.get("tracking_reliability") != "good":
         return ["Visual tracking did not detect a face or tracking was unavailable."]
-    obs = ["Face was consistently visible during the analyzed portion of the recording."]
+    obs = ["Face visibility was consistent during the analyzed portion of the recording."]
 
     hm = v_feats.get("head_movement_count")
     hm_rate = v_feats.get("head_movement_rate_per_min")
     if hm_rate is not None:
         if hm_rate > 35:
-            obs.append(f"Frequent head movement observed ({hm_rate:.1f}/min, above typical 15-35/min baseline).")
+            obs.append(f"Frequent head movement was observed at {hm_rate:.1f} movements/min, above the configured 15-35/min reference range.")
         elif hm_rate < 10:
-            obs.append(f"Very minimal head movement observed ({hm_rate:.1f}/min, posture was steady).")
+            obs.append(f"Minimal head movement was observed at {hm_rate:.1f} movements/min, below configured 15-35/min reference range.")
         else:
-            obs.append(f"Head movement within typical conversational baseline ({hm_rate:.1f}/min).")
+            obs.append(f"Head movement was measured at {hm_rate:.1f} movements/min, within configured 15-35/min reference range.")
     elif hm is not None:
         if hm > 15:
             obs.append(f"Head movement shifts observed: {hm}.")
         else:
             obs.append("Head position remained relatively stable.")
 
-    obs.append("Visual attention appeared relatively stable during the analyzed frames.")
     return obs
 
 

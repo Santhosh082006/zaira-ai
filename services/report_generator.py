@@ -320,6 +320,7 @@ def generate_performance_report(
     body(f"Report Generated: {date_str}")
     body(f"Session Performer: {person_label}")
     body(f"Analysis Coverage Score: {coverage_score}/100", bold=True)
+    body("Note: Measures data completeness and modality availability. Does not measure deception or credibility.")
     if coverage_breakdown:
         for b in coverage_breakdown:
             bullet(b.replace("&nbsp;", " ").replace("<br>", " "))

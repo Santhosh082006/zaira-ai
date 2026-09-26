@@ -56,15 +56,15 @@ def evaluate_vocal_performance(
 
     if t_min <= wpm <= t_max:
         wpm_score = 95.0
-        cadence = "well-paced and conversational"
+        cadence = "well-paced within target range"
     elif wpm < t_min:
         deficit = t_min - wpm
         wpm_score = max(35.0, 95.0 - (deficit * 1.5))
-        cadence = "deliberate and slow" if deficit > 30 else "measured and relaxed"
+        cadence = "deliberate pace" if deficit > 30 else "relaxed pacing"
     else:
         excess = wpm - t_max
         wpm_score = max(35.0, 95.0 - (excess * 1.2))
-        cadence = "rapid and hurried" if excess > 30 else "brisk and dynamic"
+        cadence = "rapid pace" if excess > 30 else "brisk pacing"
 
     # 2. Pause discipline penalty
     pause_ratio = pause_sec / max(1.0, duration)
@@ -89,7 +89,7 @@ def evaluate_vocal_performance(
     raw_final = wpm_score - pause_penalty - filler_penalty
     final_score = int(round(max(35.0, min(96.0, raw_final))))
 
-    # Observations and advice based on measurements
+    # Observations and advice based strictly on measurements
     if fillers > 2:
         improv = f"Reduce filler words ({fillers} detected, {fillers_per_min:.1f}/min) and smooth phrasing."
     elif wpm < t_min:
@@ -98,13 +98,17 @@ def evaluate_vocal_performance(
         improv = f"Moderate speaking pace down toward the target {t_min:.0f}-{t_max:.0f} WPM range."
     elif pause_ratio > 0.30:
         improv = "Tighten transitions between thoughts to reduce extended silent pauses."
+    elif pauses == 0 and duration >= 10.0:
+        improv = "No long pauses were detected, so deliberate strategic pauses could be introduced to emphasize important points."
     else:
-        improv = "Maintain this natural cadence and vocal pacing."
+        improv = f"Maintain this steady speaking pace ({wpm:.0f} WPM) and delivery pacing."
 
-    if final_score >= 82:
-        went_well = f"Excellent vocal cadence ({wpm:.0f} WPM) well-aligned with {profile.name} expectations."
+    if pauses == 0 and duration >= 10.0:
+        went_well = f"Speaking pace was measured at {wpm:.0f} WPM, providing a continuous delivery."
+    elif final_score >= 82:
+        went_well = f"Measured speaking rate was {wpm:.0f} WPM, aligned with target {t_min:.0f}-{t_max:.0f} WPM range."
     else:
-        went_well = f"Identifiable vocal cadence ({wpm:.0f} WPM) with clear acoustic tracking."
+        went_well = f"Measured speaking rate was {wpm:.0f} WPM with clear acoustic tracking."
 
     return {
         "score": final_score,
@@ -114,7 +118,7 @@ def evaluate_vocal_performance(
         "pause_duration_sec": round(pause_sec, 1),
         "filler_count": fillers,
         "filler_rate_per_min": round(fillers_per_min, 1),
-        "assessment": f"Vocal cadence was {cadence} ({wpm:.0f} WPM) with {pauses} pauses ({pause_sec:.1f}s) and {fillers} filler words under {profile.name} criteria.",
+        "assessment": f"The measured speaking rate was {wpm:.0f} WPM with {pauses} pauses ({pause_sec:.1f}s) and {fillers} filler words under {profile.name} criteria.",
         "evidence_observation": f"Speaking rate: {wpm:.0f} WPM (target: {t_min:.0f}-{t_max:.0f}) | Pauses: {pauses} ({pause_sec:.1f}s) | Fillers: {fillers}",
         "what_went_well": went_well,
         "what_needs_improvement": improv,
