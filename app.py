@@ -460,75 +460,18 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
         return
 
     st.markdown("---")
-    st.header(f"📊 Performance Assessment: {person_label}")
+    st.header("📊 Communication Performance Assessment")
 
-    # 1. Coverage & Transcript
-    c1, c2 = st.columns([1, 1])
-    score, breakdown = calculate_analysis_coverage(person_id)
-    with c1:
-        with st.container(border=True):
-            st.markdown("#### 📊 Analysis Coverage")
-            color = "🟢" if score > 80 else "🟡" if score > 50 else "🔴"
-            st.markdown(f"## {color} {score} / 100")
-            for b in breakdown:
-                st.markdown(b, unsafe_allow_html=True)
-            st.caption("*Measures data completeness and modality availability. Does not measure deception or credibility.*")
+    assessment_keys = [
+        (CAT_CONFIDENCE, "🧠 Confidence Indicators"),
+        (CAT_BODY_LANGUAGE, "🧍 Body Language & Posture"),
+        (CAT_SPEAKING_STYLE, "🗣️ Speaking Style & Fluency"),
+        (CAT_ENGAGEMENT, "👁️ Engagement & Camera Presence"),
+        (CAT_STORY_QUALITY, "⭐ Story Quality & Structure")
+    ]
 
-    with c2:
-        with st.container(border=True):
-            st.markdown("#### 📄 Spoken Transcript")
-            if transcript:
-                st.write(transcript)
-            else:
-                st.caption("No transcript available for this recording.")
-
-    # 2. Observable Signals
-    c3, c4 = st.columns(2)
-    with c3:
-        with st.container(border=True):
-            st.markdown("#### 🗣️ Observable Speech Signals")
-            obs = get_speech_observations(speech_feats)
-            for o in obs:
-                st.markdown(f"- {o}")
-            if speech_feats and speech_feats.get("duration_seconds") is not None:
-                st.caption(
-                    f"Duration: {speech_feats.get('duration_seconds', 0):.1f}s | "
-                    f"Rate: {speech_feats.get('speaking_rate_wpm', 0):.0f} WPM | "
-                    f"Pauses: {speech_feats.get('pause_count', 0)}"
-                )
-            else:
-                st.caption("Acoustic metrics: Unavailable (Duration: N/A | Rate: N/A)")
-    with c4:
-        with st.container(border=True):
-            st.markdown("#### 👁️ Observable Visual Signals")
-            if visual_feats:
-                obs = get_visual_observations(visual_feats)
-                for o in obs:
-                    st.markdown(f"- {o}")
-                hm_c = visual_feats.get('head_movement_count', 'N/A')
-                hm_r = visual_feats.get('head_movement_rate_per_min')
-                hm_disp = f"{hm_c} ({hm_r:.1f}/min, typical: 15-35/min)" if hm_r is not None and hm_c != "N/A" else str(hm_c)
-                st.caption(
-                    f"Face Presence: {'Yes' if visual_feats.get('face_detected') else 'No'} | "
-                    f"Head Movements: {hm_disp} | "
-                    f"Blinks: {visual_feats.get('blink_count', 'N/A')}"
-                )
-            else:
-                st.markdown("- No video input provided, visual analysis not applicable.")
-
-    # 3. Five Evidence-Backed Performance Categories
+    # 1. Five Performance Categories (Immediately visible)
     if eval_data:
-        st.markdown("---")
-        st.subheader("🎯 Multimodal Performance Breakdown")
-
-        assessment_keys = [
-            (CAT_CONFIDENCE, "🧠 Confidence Indicators"),
-            (CAT_BODY_LANGUAGE, "🧍 Body Language & Posture"),
-            (CAT_SPEAKING_STYLE, "🗣️ Speaking Style & Fluency"),
-            (CAT_ENGAGEMENT, "👁️ Engagement & Camera Presence"),
-            (CAT_STORY_QUALITY, "⭐ Story Quality & Structure")
-        ]
-
         for key, title in assessment_keys:
             v = eval_data.get(key)
             if isinstance(v, dict):
@@ -540,7 +483,7 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
                     else:
                         score_display = f"⚠️ {score_val}"
 
-                    st.markdown(f"##### {title} — {score_display}")
+                    st.markdown(f"### {title} — {score_display}")
                     if v.get("assessment"):
                         st.write(v.get("assessment"))
 
@@ -564,13 +507,13 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
                             obs_text = f"Supporting data: {obs_text}"
                         st.caption(f"📊 {obs_text}")
 
-        # 4. Overall Performance Summary
+        # 2. Overall Performance Summary
         st.markdown("---")
         st.subheader("📋 Overall Performance Summary")
         with st.container(border=True):
             c_s1, c_s2 = st.columns(2)
             with c_s1:
-                st.markdown("##### ✅ Key Strengths")
+                st.markdown("#### ✅ Key Strengths")
                 strengths_found = False
                 for key, title in assessment_keys:
                     v = eval_data.get(key)
@@ -582,7 +525,7 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
                 if not strengths_found:
                     st.caption("No specific strengths measured (insufficient multimodal signals).")
             with c_s2:
-                st.markdown("##### ⚠️ Priority Improvement Opportunities")
+                st.markdown("#### ⚠️ Priority Improvement Opportunities")
                 improvements_found = False
                 for key, title in assessment_keys:
                     v = eval_data.get(key)
@@ -594,26 +537,82 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
                 if not improvements_found:
                     st.caption("No specific improvements flagged (data unmeasured).")
 
-        # 5. PDF Export
-        st.markdown("---")
-        pdf_bytes = generate_performance_report(
-            person_label=person_label,
-            story=story,
-            speech=speech_feats,
-            visual=visual_feats,
-            eval_data=eval_data,
-            coverage_score=score,
-            coverage_breakdown=breakdown
-        )
-        st.download_button(
-            "📄 Download Performance Report (PDF)",
-            data=pdf_bytes,
-            file_name=f"TruthLens_Performance_Report_{person_id}.pdf",
-            mime="application/pdf",
-            type="primary",
-            use_container_width=True,
-            key=f"dl_pdf_{person_id}"
-        )
+    # 3. Supporting Analysis Details (After the performance assessment & summary)
+    st.markdown("---")
+    st.header("🔍 Analysis Details")
+
+    c1, c2 = st.columns([1, 1])
+    score, breakdown = calculate_analysis_coverage(person_id)
+    with c1:
+        with st.container(border=True):
+            st.markdown("### 📊 Analysis Coverage")
+            color = "🟢" if score > 80 else "🟡" if score > 50 else "🔴"
+            st.markdown(f"## {color} {score} / 100")
+            for b in breakdown:
+                st.markdown(b, unsafe_allow_html=True)
+            st.caption("*Measures data completeness and modality availability. Does not measure deception or credibility.*")
+
+    with c2:
+        with st.container(border=True):
+            st.markdown("### 📄 Spoken Transcript")
+            if transcript:
+                st.write(transcript)
+            else:
+                st.caption("No transcript available for this recording.")
+
+    c3, c4 = st.columns(2)
+    with c3:
+        with st.container(border=True):
+            st.markdown("### 🗣️ Observable Speech Signals")
+            obs = get_speech_observations(speech_feats)
+            for o in obs:
+                st.markdown(f"- {o}")
+            if speech_feats and speech_feats.get("duration_seconds") is not None:
+                st.caption(
+                    f"Duration: {speech_feats.get('duration_seconds', 0):.1f}s | "
+                    f"Rate: {speech_feats.get('speaking_rate_wpm', 0):.0f} WPM | "
+                    f"Pauses: {speech_feats.get('pause_count', 0)}"
+                )
+            else:
+                st.caption("Acoustic metrics: Unavailable (Duration: N/A | Rate: N/A)")
+    with c4:
+        with st.container(border=True):
+            st.markdown("### 👁️ Observable Visual Signals")
+            if visual_feats:
+                obs = get_visual_observations(visual_feats)
+                for o in obs:
+                    st.markdown(f"- {o}")
+                hm_c = visual_feats.get('head_movement_count', 'N/A')
+                hm_r = visual_feats.get('head_movement_rate_per_min')
+                hm_disp = f"{hm_c} ({hm_r:.1f}/min, typical: 15-35/min)" if hm_r is not None and hm_c != "N/A" else str(hm_c)
+                st.caption(
+                    f"Face Presence: {'Yes' if visual_feats.get('face_detected') else 'No'} | "
+                    f"Head Movements: {hm_disp} | "
+                    f"Blinks: {visual_feats.get('blink_count', 'N/A')}"
+                )
+            else:
+                st.markdown("- No video input provided, visual analysis not applicable.")
+
+    # 4. PDF Export
+    st.markdown("---")
+    pdf_bytes = generate_performance_report(
+        person_label=person_label,
+        story=story,
+        speech=speech_feats,
+        visual=visual_feats,
+        eval_data=eval_data,
+        coverage_score=score,
+        coverage_breakdown=breakdown
+    )
+    st.download_button(
+        "📄 Download Performance Report (PDF)",
+        data=pdf_bytes,
+        file_name=f"TruthLens_Performance_Report_{person_id}.pdf",
+        mime="application/pdf",
+        type="primary",
+        use_container_width=True,
+        key=f"dl_pdf_{person_id}"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
