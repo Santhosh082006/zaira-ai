@@ -37,6 +37,11 @@ from core.constants import (
 )
 from processors.context_engine.weighting import get_context_profile, PROFILES
 from processors.ingestion.video_demuxer import demux_video_to_audio
+import importlib
+import analytical_engine.evaluator
+if not hasattr(analytical_engine.evaluator, "calculate_overall_communication_score"):
+    importlib.reload(analytical_engine.evaluator)
+
 from analytical_engine.evaluator import (
     evaluate_account_with_explanation,
     calculate_overall_communication_score,

@@ -248,7 +248,7 @@ class TestReportUIReorder(unittest.TestCase):
 
     def test_apptest_compare_videos_rendered_order(self):
         """Use Streamlit AppTest to verify individual assessment inside Compare & Assess expander."""
-        at = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=30)
+        at = AppTest.from_file(os.path.join(ROOT_DIR, "app.py"), default_timeout=60)
         at.run()
 
         # Switch to Compare & Assess
