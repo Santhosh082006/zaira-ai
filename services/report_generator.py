@@ -381,6 +381,15 @@ def generate_performance_report(
     # 4. Performance Assessment Dimensions
     if eval_data:
         title("4. Performance & Communication Assessment")
+        try:
+            from analytical_engine.evaluator import calculate_overall_communication_score
+            overall_sc, overall_txt = calculate_overall_communication_score(eval_data)
+            if isinstance(overall_sc, int):
+                body(f"Overall Communication Score: {overall_sc}/100", bold=True)
+                body(overall_txt)
+                pdf.ln(3)
+        except Exception:
+            pass
         dims = [
             ("confidence_indicators", "Confidence Indicators"),
             ("body_language", "Body Language & Posture"),

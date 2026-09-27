@@ -37,7 +37,10 @@ from core.constants import (
 )
 from processors.context_engine.weighting import get_context_profile, PROFILES
 from processors.ingestion.video_demuxer import demux_video_to_audio
-from analytical_engine.evaluator import evaluate_account_with_explanation
+from analytical_engine.evaluator import (
+    evaluate_account_with_explanation,
+    calculate_overall_communication_score,
+)
 from analytical_engine.cross_comparator import compare_multimodal_performance
 from services.speech_to_text import load_whisper_model, transcribe_audio
 from services.story_analyzer import extract_story_facts, validate_extracted_story, evaluate_individual_account
@@ -470,8 +473,24 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
         (CAT_STORY_QUALITY, "⭐ Story Quality & Structure")
     ]
 
-    # 1. Five Performance Categories (Immediately visible)
+    # 1. Overall Communication Score & Five Performance Categories
     if eval_data:
+        active_context_key = st.session_state.get("_active_context_key", CONTEXT_JOB_INTERVIEW)
+        profile = get_context_profile(active_context_key)
+        overall_score, overall_assessment = calculate_overall_communication_score(eval_data, profile)
+
+        # Hero Card: ⭐ Overall Communication Score
+        with st.container(border=True):
+            if isinstance(overall_score, int):
+                color = "🟢" if overall_score >= 80 else "🟡" if overall_score >= 50 else "🔴"
+                score_display = f"{color} {overall_score}/100"
+            else:
+                score_display = f"⚠️ {overall_score}"
+
+            st.markdown(f"## ⭐ Overall Communication Score — {score_display}")
+            st.write(overall_assessment)
+
+        # Category Assessments
         for key, title in assessment_keys:
             v = eval_data.get(key)
             if isinstance(v, dict):

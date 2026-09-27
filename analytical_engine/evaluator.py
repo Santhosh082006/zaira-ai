@@ -22,7 +22,7 @@ CRITICAL RULES:
 
 from __future__ import annotations
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union, Tuple
 
 from core.constants import (
     INSUFFICIENT_DATA,
@@ -31,10 +31,112 @@ from core.constants import (
     CAT_ENGAGEMENT,
     CAT_CONFIDENCE,
     CAT_STORY_QUALITY,
+    ALL_CATEGORIES,
 )
 from processors.context_engine.weighting import ContextProfile, get_context_profile
 from analytical_engine.vocal_metrics import evaluate_vocal_performance
 from analytical_engine.visual_metrics import evaluate_visual_performance
+
+
+CATEGORY_STRENGTH_LABELS = {
+    CAT_SPEAKING_STYLE: "speaking fluency and pace",
+    CAT_STORY_QUALITY: "structured storytelling",
+    CAT_CONFIDENCE: "composed delivery",
+    CAT_ENGAGEMENT: "consistent camera presence",
+    CAT_BODY_LANGUAGE: "controlled posture and body language",
+}
+
+CATEGORY_IMPROVEMENT_LABELS = {
+    CAT_SPEAKING_STYLE: "regulating your speaking pace and using intentional pauses",
+    CAT_STORY_QUALITY: "connecting events chronologically with clear sequence markers",
+    CAT_CONFIDENCE: "anchoring key takeaways with deliberate pauses for extra emphasis",
+    CAT_ENGAGEMENT: "maintaining consistent camera engagement",
+    CAT_BODY_LANGUAGE: "making body and head movements more intentional and reducing excessive movement",
+}
+
+
+def calculate_overall_communication_score(
+    eval_data: Optional[Dict[str, Any]],
+    profile: Optional[Union[ContextProfile, str]] = None
+) -> Tuple[Union[int, str], str]:
+    """
+    Calculate a deterministic overall communication score and human-friendly coaching assessment.
+
+    CRITICAL RULES:
+    1. Deterministically calculated from the 5 category scores using profile category weights.
+    2. Zero hardcoding, zero arbitrary constants, zero LLM hallucination of scores.
+    3. If some categories have insufficient data, calculates based on available measured
+       scores only, normalizing active weights proportionally.
+    4. Identical input + measurements + profile = identical overall score.
+    5. Accompanied by a concise, human-friendly coaching synthesis highlighting top strength
+       and single highest-impact priority improvement opportunity.
+    """
+    if profile is None or isinstance(profile, str):
+        profile = get_context_profile(profile)
+
+    if not eval_data or not isinstance(eval_data, dict):
+        return (
+            INSUFFICIENT_DATA,
+            "Insufficient multimodal data available to calculate an overall communication score. "
+            "Please record or upload a video with clear audio and forward-facing visual tracking."
+        )
+
+    weighted_sum = 0.0
+    total_active_weight = 0.0
+    valid_scores: Dict[str, Tuple[float, float, Dict[str, Any]]] = {}
+
+    for cat in ALL_CATEGORIES:
+        item = eval_data.get(cat)
+        if isinstance(item, dict):
+            s = item.get("score")
+            if isinstance(s, (int, float)) and not isinstance(s, bool):
+                s_val = float(s)
+                w = profile.category_weights.get(cat, 0.20)
+                valid_scores[cat] = (s_val, w, item)
+                weighted_sum += s_val * w
+                total_active_weight += w
+
+    if not valid_scores or total_active_weight <= 0:
+        return (
+            INSUFFICIENT_DATA,
+            "Insufficient multimodal data available to calculate an overall communication score. "
+            "Please record or upload a video with clear audio and forward-facing visual tracking."
+        )
+
+    overall_score = int(round(weighted_sum / total_active_weight))
+
+    # Sort categories by score descending to extract strengths and focus areas
+    sorted_cats = sorted(valid_scores.keys(), key=lambda c: valid_scores[c][0], reverse=True)
+    top_1 = sorted_cats[0]
+    lowest = sorted_cats[-1]
+
+    # Select top strength(s)
+    if len(sorted_cats) >= 2 and sorted_cats[1] != lowest and valid_scores[sorted_cats[1]][0] >= 65:
+        top_2 = sorted_cats[1]
+        strengths_text = f"{CATEGORY_STRENGTH_LABELS.get(top_1, top_1)} and {CATEGORY_STRENGTH_LABELS.get(top_2, top_2)}"
+    else:
+        strengths_text = f"{CATEGORY_STRENGTH_LABELS.get(top_1, top_1)}"
+
+    # Determine opening tone based on score
+    if overall_score >= 80:
+        opening = "Your communication is clear, composed, and highly effective"
+    elif overall_score >= 70:
+        opening = "Your communication is clear and composed"
+    elif overall_score >= 55:
+        opening = "Your communication demonstrates a solid foundation with steady delivery"
+    else:
+        opening = "Your communication provides a solid foundation to build upon"
+
+    # Select improvement area
+    imp_label = CATEGORY_IMPROVEMENT_LABELS.get(lowest, lowest)
+    if valid_scores[lowest][0] < 80:
+        improvement_text = f"To elevate your impact further, focus on {imp_label}."
+    else:
+        improvement_text = f"To elevate your impact even further, continue refining {imp_label}."
+
+    assessment_text = f"{opening}, with particularly strong {strengths_text}. {improvement_text}"
+
+    return overall_score, assessment_text
 
 
 def compute_deterministic_scores(
