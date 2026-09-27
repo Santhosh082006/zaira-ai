@@ -34,6 +34,11 @@ from core.constants import (
     CAT_STORY_QUALITY,
     ALL_CATEGORIES,
     INSUFFICIENT_DATA,
+    FEATURE_LIVE_CAMERA,
+    FEATURE_INDIVIDUAL_VIDEO,
+    FEATURE_COMPARE_ASSESS,
+    ALL_FEATURES,
+    DEFAULT_FEATURE,
 )
 from processors.context_engine.weighting import get_context_profile, PROFILES
 from processors.ingestion.video_demuxer import demux_video_to_audio
@@ -85,6 +90,8 @@ def init_session_lifecycle() -> str:
     if "_session_id" not in st.session_state:
         session_id = uuid.uuid4().hex[:12]
         st.session_state["_session_id"] = session_id
+        st.session_state["active_feature"] = DEFAULT_FEATURE
+        st.session_state["sidebar_primary_nav"] = DEFAULT_FEATURE
         for pid in ["live", "upload", "a", "b"]:
             st.session_state[f"video_path_{pid}"] = None
             st.session_state[f"media_hash_{pid}"] = None
@@ -1061,15 +1068,31 @@ def main():
 
     # ── Sidebar Navigation & Context ───────────────────────────────────────────
     st.sidebar.title("TruthLens")
+
+    # Canonical Feature Navigation State (Single Source of Truth)
+    current_feature = st.session_state.get("active_feature", DEFAULT_FEATURE)
+    if current_feature not in ALL_FEATURES:
+        current_feature = DEFAULT_FEATURE
+        st.session_state["active_feature"] = current_feature
+
+    current_idx = ALL_FEATURES.index(current_feature)
+
+    def _on_feature_nav_change():
+        chosen = st.session_state.get("sidebar_primary_nav")
+        if chosen in ALL_FEATURES:
+            st.session_state["active_feature"] = chosen
+
     feature_mode = st.sidebar.radio(
         "Select Feature:",
-        [
-            "🎥 Live Camera Recording",
-            "📁 Individual Video Analysis",
-            "⚖️ Compare & Assess"
-        ],
-        key="sidebar_primary_nav"
+        options=ALL_FEATURES,
+        index=current_idx,
+        key="sidebar_primary_nav",
+        on_change=_on_feature_nav_change
     )
+
+    # Immediately lock canonical state to the selected option
+    selected_feature = feature_mode if feature_mode in ALL_FEATURES else st.session_state.get("active_feature", DEFAULT_FEATURE)
+    st.session_state["active_feature"] = selected_feature
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Evaluation Context")
@@ -1109,13 +1132,15 @@ def main():
         st.session_state["live_recorded_this_session"] = False
         st.rerun()
 
-    # ── Feature Routing ────────────────────────────────────────────────────────
-    if feature_mode == "🎥 Live Camera Recording":
+    # ── Feature Routing (Canonical Single Source of Truth) ─────────────────────
+    if selected_feature == FEATURE_LIVE_CAMERA:
         render_feature_live_camera(active_context_key)
-    elif feature_mode == "📁 Individual Video Analysis":
+    elif selected_feature == FEATURE_INDIVIDUAL_VIDEO:
         render_feature_individual_video(active_context_key)
-    elif feature_mode == "⚖️ Compare & Assess":
+    elif selected_feature == FEATURE_COMPARE_ASSESS:
         render_feature_compare_videos(active_context_key)
+    else:
+        render_feature_live_camera(active_context_key)
 
 
 if __name__ == "__main__":

@@ -46,6 +46,18 @@ CONTEXT_DISPLAY_NAMES = {
     CONTEXT_CASUAL_MEETING: "☕ Casual Team Meeting"
 }
 
+# Primary Feature Navigation Identifiers
+FEATURE_LIVE_CAMERA = "🎥 Live Camera Recording"
+FEATURE_INDIVIDUAL_VIDEO = "📁 Individual Video Analysis"
+FEATURE_COMPARE_ASSESS = "⚖️ Compare & Assess"
+
+ALL_FEATURES = [
+    FEATURE_LIVE_CAMERA,
+    FEATURE_INDIVIDUAL_VIDEO,
+    FEATURE_COMPARE_ASSESS,
+]
+DEFAULT_FEATURE = FEATURE_LIVE_CAMERA
+
 # Forbidden Deception/Lie-Detection terms
 FORBIDDEN_DECEPTION_TERMS = [
     "lying", "liar", "deceptive", "deception", "honest", "honesty",
