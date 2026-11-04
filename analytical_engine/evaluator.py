@@ -40,18 +40,18 @@ from analytical_engine.visual_metrics import evaluate_visual_performance
 
 CATEGORY_STRENGTH_LABELS = {
     CAT_SPEAKING_STYLE: "speaking fluency and pace",
-    CAT_STORY_QUALITY: "structured storytelling",
-    CAT_CONFIDENCE: "composed delivery",
+    CAT_STORY_QUALITY: "narrative detail and event richness",
+    CAT_CONFIDENCE: "composed presentation delivery",
     CAT_ENGAGEMENT: "consistent camera presence",
     CAT_BODY_LANGUAGE: "controlled posture and body language",
 }
 
 CATEGORY_IMPROVEMENT_LABELS = {
-    CAT_SPEAKING_STYLE: "regulating your speaking pace and using intentional pauses",
-    CAT_STORY_QUALITY: "connecting events chronologically with clear sequence markers",
+    CAT_SPEAKING_STYLE: "regulating speaking pace and using intentional pauses",
+    CAT_STORY_QUALITY: "providing clear event transitions and descriptive details",
     CAT_CONFIDENCE: "anchoring key takeaways with deliberate pauses for extra emphasis",
-    CAT_ENGAGEMENT: "maintaining consistent camera engagement",
-    CAT_BODY_LANGUAGE: "making body and head movements more intentional and reducing excessive movement",
+    CAT_ENGAGEMENT: "maintaining consistent camera presence",
+    CAT_BODY_LANGUAGE: "making body and head movements intentional and purposeful",
 }
 
 
@@ -187,11 +187,12 @@ def compute_deterministic_scores(
     else:
         engagement = {
             "score": INSUFFICIENT_DATA,
-            "assessment": "Engagement signals require active facial landmark tracking.",
-            "evidence_observation": "No facial landmark stream available.",
+            "metric_name": "Camera Presence",
+            "assessment": "Camera presence signals require active facial landmark tracking.",
+            "evidence_observation": "No facial landmark stream available. Camera presence is unmeasured.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
-            "practical_recommendation": "Position yourself centered in the camera viewport."
+            "practical_recommendation": "Position yourself centered in the camera viewport with clear front lighting."
         }
 
     # 3. Confidence Indicators (Observable communication composure)
@@ -213,6 +214,7 @@ def compute_deterministic_scores(
         
         confidence_indicators = {
             "score": conf_score,
+            "metric_name": "Delivery Composure",
             "assessment": f"Your presentation delivery was steady and continuous, with {wpm_str} and {pause_str}. While confidence as an internal state cannot be determined from these signals alone, your observable delivery showed calm composure and good control.",
             "evidence_observation": f"Supporting data: Delivery composure score {conf_score}/100 across {len(valid_behavioral_scores)} observable channels (evaluates observable presentation delivery composure, not internal emotional state).",
             "what_went_well": "Speaking pace and camera framing remained steady throughout the delivery.",
@@ -222,6 +224,7 @@ def compute_deterministic_scores(
     else:
         confidence_indicators = {
             "score": INSUFFICIENT_DATA,
+            "metric_name": "Delivery Composure",
             "assessment": "Insufficient multimodal behavioral signals to evaluate delivery composure.",
             "evidence_observation": "Acoustic and visual streams lack sufficient measurable signals.",
             "what_went_well": "N/A",
@@ -229,7 +232,9 @@ def compute_deterministic_scores(
             "practical_recommendation": "Record both clear microphone audio and forward-facing video."
         }
 
-    # 4. Story Quality & Structure (Chronological narrative structure)
+    # 4. Narrative Detail & Structure (Entity density and descriptive richness)
+    # CRITICAL: This formula measures narrative detail, extracted-entity density, and descriptive
+    # progression. It does NOT evaluate factual accuracy, truthfulness, logical validity, or technical correctness.
     words = len((transcript or "").split())
     has_text = bool((transcript or "").strip() and words >= 6)
 
@@ -239,34 +244,46 @@ def compute_deterministic_scores(
         locations = story_data.get("all_locations_mentioned", [])
         people = story_data.get("all_people_mentioned", [])
 
-        # Mathematical score based strictly on narrative completeness
+        # Mathematical score based strictly on narrative completeness and entity density
         raw_sq = 45.0 + (len(events) * 9.0) + (len(claims) * 4.0) + (len(locations) * 3.0)
         sq_score = int(round(max(45.0, min(95.0, raw_sq))))
 
         story_quality = {
             "score": sq_score,
-            "assessment": f"You included several specific details and locations, which made the story more concrete and easier to follow. Clear narrative details help your listener visualize what happened.",
-            "evidence_observation": f"Supporting data: {len(events)} events | {len(claims)} claims | {len(locations)} locations referenced in transcript",
-            "what_went_well": "The narrative contains concrete examples that improve specificity and give substance to your account.",
-            "what_needs_improvement": "Strengthen the chronological sequence so the listener can follow the progression of events effortlessly.",
-            "practical_recommendation": "Keep using specific examples, and connect events with clear sequence markers like 'first', 'then', and 'after that'."
+            "metric_name": "Narrative Detail",
+            "assessment": (
+                f"You provided a detailed account referencing {len(events)} events, {len(claims)} key statements, and {len(locations)} locations. "
+                "This metric measures narrative detail and extracted entity density; it does not measure factual accuracy, veracity, logical validity, or technical correctness."
+            ),
+            "evidence_observation": (
+                f"Supporting data: {len(events)} events | {len(claims)} claims | {len(locations)} locations extracted from transcript "
+                "(reflects narrative detail and entity density; does not verify factual correctness or veracity)."
+            ),
+            "what_went_well": "The narrative contains descriptive details and multiple event references that provide context.",
+            "what_needs_improvement": "Connect events with clear temporal sequence markers to clarify the chronological progression.",
+            "practical_recommendation": "Use transition words like 'first', 'subsequently', and 'finally' to connect your detailed points into a clear progression."
         }
     elif has_text:
         raw_sq = min(75.0, 40.0 + (words * 0.6))
         sq_score = int(round(raw_sq))
         story_quality = {
             "score": sq_score,
-            "assessment": "You shared a brief overview of your account. Adding more sequential details and specific examples will make your story much richer and easier to follow.",
-            "evidence_observation": f"Supporting data: {words} words captured | Minimal structured event points",
+            "metric_name": "Narrative Detail",
+            "assessment": (
+                f"You shared a brief account ({words} words). "
+                "This score reflects narrative length and basic text coverage; it does not evaluate factual accuracy or logical validity."
+            ),
+            "evidence_observation": f"Supporting data: {words} words captured | Minimal structured event points (measures narrative density only).",
             "what_went_well": "Your initial account was captured clearly in the transcript.",
-            "what_needs_improvement": "Add specific time markers and chronological sequence connectors (first, then, afterward) to structure the account.",
+            "what_needs_improvement": "Elaborate with concrete examples and specific situational details to provide fuller context.",
             "practical_recommendation": "Walk the listener through what happened step-by-step using phrases like 'First', 'Next', and 'Finally'."
         }
     else:
         story_quality = {
             "score": INSUFFICIENT_DATA,
-            "assessment": "No transcript available to evaluate narrative structure.",
-            "evidence_observation": "Missing textual account.",
+            "metric_name": "Narrative Detail",
+            "assessment": "No transcript available to evaluate narrative detail.",
+            "evidence_observation": "Missing textual account. Narrative detail is unmeasured.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
             "practical_recommendation": "Provide a spoken or manual narrative account."
@@ -433,16 +450,16 @@ OUTPUT FORMAT (Strictly Valid JSON only, matching the exact scores provided):
   }},
   "engagement": {{
     "score": {json.dumps(deterministic_eval['engagement']['score'])},
-    "assessment": "<friendly coaching review explaining camera presence and framing; NO eye contact claims>",
-    "evidence_observation": "Supporting data: <face presence ratio and tracking status>",
+    "assessment": "<friendly coaching review explaining camera presence and framing; explicitly note this measures camera presence, not eye contact, gaze fixation, or psychological engagement>",
+    "evidence_observation": "Supporting data: <face presence ratio percentage of frames face was detected; explicitly note this measures camera presence, not eye contact>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"
   }},
   "story_quality": {{
     "score": {json.dumps(deterministic_eval['story_quality']['score'])},
-    "assessment": "<friendly coaching review explaining narrative detail, clarity, and event progression; NO credibility/truth claims>",
-    "evidence_observation": "Supporting data: <event count, claim count, and location details>",
+    "assessment": "<friendly coaching review explaining narrative detail, entity richness, and descriptive progression; DO NOT claim factual correctness, veracity, or accuracy>",
+    "evidence_observation": "Supporting data: <event count, claim count, and location details; explicitly note this measures narrative detail, not factual accuracy or veracity>",
     "what_went_well": "<string or N/A>",
     "what_needs_improvement": "<string or N/A>",
     "practical_recommendation": "<string>"

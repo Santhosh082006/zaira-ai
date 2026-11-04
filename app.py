@@ -57,6 +57,33 @@ from services.story_analyzer import extract_story_facts, validate_extracted_stor
 from services.speech_features import extract_speech_features
 from services.visual_features import extract_visual_features
 from services.report_generator import generate_performance_report, generate_evidence_report
+import ui.theme
+if not hasattr(ui.theme, "top_navigation_bar_html"):
+    importlib.reload(ui.theme)
+
+from ui.theme import (
+    FONT_IMPORT,
+    PREMIUM_CSS,
+    top_navigation_bar_html,
+    editorial_page_header_html,
+    cinematic_hud_stage_overlay,
+    studio_guidelines_strip_html,
+    hero_score_radial_gauge_html,
+    category_card_luxury_html,
+    comparison_verdict_hero_html,
+    comparison_vs_nexus_html,
+    recording_live_pulse_html,
+    section_divider_glow_html,
+    section_label_chip_html,
+    coverage_bar_html,
+    page_header_html,
+    recording_indicator_html,
+    winner_badge_html,
+    recommendation_html,
+    evidence_badge_html,
+    section_label_html,
+    separator_html,
+)
 
 # ── Load environment variables ─────────────────────────────────────────────────
 load_dotenv()
@@ -69,6 +96,10 @@ st.set_page_config(
     page_icon="🔍",
     layout="wide",
 )
+
+# ── Inject Premium Design System ───────────────────────────────────────────────
+st.markdown(FONT_IMPORT, unsafe_allow_html=True)
+st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
 
 # ── Cache the Whisper model ────────────────────────────────────────────────────
 @st.cache_resource(
@@ -474,157 +505,127 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
     if not has_any:
         return
 
-    st.markdown("---")
-    st.header("📊 Communication Performance Assessment")
+    st.markdown("## PERFORMANCE ANALYSIS")
+    st.markdown("────────────────────────────")
 
     assessment_keys = [
-        (CAT_CONFIDENCE, "🧠 Confidence Indicators"),
-        (CAT_BODY_LANGUAGE, "🧍 Body Language & Posture"),
-        (CAT_SPEAKING_STYLE, "🗣️ Speaking Style & Fluency"),
-        (CAT_ENGAGEMENT, "👁️ Engagement & Camera Presence"),
-        (CAT_STORY_QUALITY, "⭐ Story Quality & Structure")
+        (CAT_SPEAKING_STYLE, "Speaking Style & Fluency"),
+        (CAT_STORY_QUALITY, "Narrative Detail"),
+        (CAT_ENGAGEMENT, "Camera Presence"),
+        (CAT_BODY_LANGUAGE, "Body Language"),
+        (CAT_CONFIDENCE, "Delivery Composure")
     ]
 
-    # 1. Overall Communication Score & Five Performance Categories
+    score, breakdown = calculate_analysis_coverage(person_id)
+
+    # 1. PERFORMANCE OVERVIEW
     if eval_data:
         active_context_key = st.session_state.get("_active_context_key", CONTEXT_JOB_INTERVIEW)
         profile = get_context_profile(active_context_key)
         overall_score, overall_assessment = calculate_overall_communication_score(eval_data, profile)
 
-        # Hero Card: ⭐ Overall Communication Score
-        with st.container(border=True):
-            if isinstance(overall_score, int):
-                color = "🟢" if overall_score >= 80 else "🟡" if overall_score >= 50 else "🔴"
-                score_display = f"{color} {overall_score}/100"
-            else:
-                score_display = f"⚠️ {overall_score}"
+        st.markdown("### PERFORMANCE OVERVIEW")
+        score_disp = f"{overall_score} / 100" if isinstance(overall_score, (int, float)) else str(overall_score)
+        st.markdown(f"**{score_disp} Overall Performance**")
+        st.markdown(f"{overall_assessment}")
+        st.markdown("────────────────────────────")
 
-            st.markdown(f"## ⭐ Overall Communication Score — {score_display}")
-            st.write(overall_assessment)
+        # 2. KEY SCORES
+        st.markdown("### KEY SCORES")
+        c1, c2, c3, c4 = st.columns(4)
+        cols = [c1, c2, c3, c4]
+        
+        display_keys = [
+            (CAT_SPEAKING_STYLE, "Speaking Style"),
+            (CAT_STORY_QUALITY, "Narrative Detail"),
+            (CAT_ENGAGEMENT, "Camera Presence"),
+            (CAT_BODY_LANGUAGE, "Body Language")
+        ]
+        
+        for idx, (key, title) in enumerate(display_keys):
+            v = eval_data.get(key)
+            if isinstance(v, dict):
+                score_val = v.get("score", INSUFFICIENT_DATA)
+                with cols[idx]:
+                    st.metric(title, f"{score_val}/100" if isinstance(score_val, (int, float)) else str(score_val))
+        
+        st.markdown("────────────────────────────")
 
-        # Category Assessments
+        # 3. WHAT WENT WELL
+        st.markdown("### WHAT WENT WELL")
+        strengths_found = False
         for key, title in assessment_keys:
             v = eval_data.get(key)
             if isinstance(v, dict):
-                with st.container(border=True):
-                    score_val = v.get("score", INSUFFICIENT_DATA)
-                    if isinstance(score_val, int):
-                        color = "🟢" if score_val >= 80 else "🟡" if score_val >= 50 else "🔴"
-                        score_display = f"{color} {score_val}/100"
-                    else:
-                        score_display = f"⚠️ {score_val}"
+                www = v.get("what_went_well")
+                if www and str(www).strip().upper() != "N/A":
+                    st.markdown(f"- ✅ **{title}**: {www}")
+                    strengths_found = True
+        if not strengths_found:
+            st.caption("No specific strengths measured.")
+        
+        st.markdown("────────────────────────────")
 
-                    st.markdown(f"### {title} — {score_display}")
-                    if v.get("assessment"):
-                        st.write(v.get("assessment"))
+        # 4. NEEDS IMPROVEMENT
+        st.markdown("### NEEDS IMPROVEMENT")
+        improvements_found = False
+        imp_count = 1
+        for key, title in assessment_keys:
+            v = eval_data.get(key)
+            if isinstance(v, dict):
+                wni = v.get("what_needs_improvement")
+                if wni and str(wni).strip().upper() != "N/A":
+                    st.markdown(f"{imp_count}. **{title}**: {wni}")
+                    imp_count += 1
+                    improvements_found = True
+        if not improvements_found:
+            st.caption("No specific improvements flagged.")
+            
+        st.markdown("────────────────────────────")
 
-                    c_str, c_imp = st.columns(2)
-                    with c_str:
-                        www = v.get("what_went_well")
-                        if www and str(www).strip().upper() != "N/A":
-                            st.markdown(f"**Strength:**\n- {www}")
-                    with c_imp:
-                        wni = v.get("what_needs_improvement")
-                        if wni and str(wni).strip().upper() != "N/A":
-                            st.markdown(f"**Area for Improvement:**\n- {wni}")
+        with st.expander("DETAILED ANALYSIS"):
+            for key, title in assessment_keys:
+                v = eval_data.get(key)
+                if isinstance(v, dict):
+                    st.markdown(f"**{title}**")
+                    st.markdown(v.get('assessment', ''))
 
-                    rec = v.get("practical_recommendation")
-                    if rec and str(rec).strip().upper() != "N/A":
-                        st.info(f"💡 **Try this:** {rec}")
+        st.markdown("────────────────────────────")
 
-                    obs_text = v.get("evidence_observation")
-                    if obs_text:
-                        if not obs_text.lower().startswith("supporting data:"):
-                            obs_text = f"Supporting data: {obs_text}"
-                        st.caption(f"📊 {obs_text}")
-
-        # 2. Overall Performance Summary
-        st.markdown("---")
-        st.subheader("📋 Overall Performance Summary")
-        with st.container(border=True):
-            c_s1, c_s2 = st.columns(2)
-            with c_s1:
-                st.markdown("#### ✅ Key Strengths")
-                strengths_found = False
-                for key, title in assessment_keys:
-                    v = eval_data.get(key)
-                    if isinstance(v, dict):
-                        www = v.get("what_went_well")
-                        if www and str(www).strip().upper() != "N/A":
-                            st.markdown(f"- **{title}**: {www}")
-                            strengths_found = True
-                if not strengths_found:
-                    st.caption("No specific strengths measured (insufficient multimodal signals).")
-            with c_s2:
-                st.markdown("#### ⚠️ Priority Improvement Opportunities")
-                improvements_found = False
-                for key, title in assessment_keys:
-                    v = eval_data.get(key)
-                    if isinstance(v, dict):
-                        wni = v.get("what_needs_improvement")
-                        if wni and str(wni).strip().upper() != "N/A":
-                            st.markdown(f"- **{title}**: {wni}")
-                            improvements_found = True
-                if not improvements_found:
-                    st.caption("No specific improvements flagged (data unmeasured).")
-
-    # 3. Supporting Analysis Details (After the performance assessment & summary)
-    st.markdown("---")
-    st.header("🔍 Analysis Details")
-
-    c1, c2 = st.columns([1, 1])
-    score, breakdown = calculate_analysis_coverage(person_id)
-    with c1:
-        with st.container(border=True):
-            st.markdown("### 📊 Analysis Coverage")
-            color = "🟢" if score > 80 else "🟡" if score > 50 else "🔴"
-            st.markdown(f"## {color} {score} / 100")
-            for b in breakdown:
-                st.markdown(b, unsafe_allow_html=True)
-            st.caption("*Measures data completeness and modality availability. Does not measure deception or credibility.*")
-
-    with c2:
-        with st.container(border=True):
-            st.markdown("### 📄 Spoken Transcript")
-            if transcript:
-                st.write(transcript)
-            else:
-                st.caption("No transcript available for this recording.")
-
-    c3, c4 = st.columns(2)
-    with c3:
-        with st.container(border=True):
-            st.markdown("### 🗣️ Observable Speech Signals")
-            obs = get_speech_observations(speech_feats)
+    # EVIDENCE
+    with st.expander("EVIDENCE"):
+        st.markdown("**Speech Observations**")
+        obs = get_speech_observations(speech_feats)
+        for o in obs:
+            st.markdown(f"- {o}")
+        if speech_feats and speech_feats.get("duration_seconds") is not None:
+            st.caption(f"Duration: {speech_feats.get('duration_seconds', 0):.1f}s | Rate: {speech_feats.get('speaking_rate_wpm', 0):.0f} WPM")
+            
+        st.markdown("**Visual Observations**")
+        if visual_feats:
+            obs = get_visual_observations(visual_feats)
             for o in obs:
                 st.markdown(f"- {o}")
-            if speech_feats and speech_feats.get("duration_seconds") is not None:
-                st.caption(
-                    f"Duration: {speech_feats.get('duration_seconds', 0):.1f}s | "
-                    f"Rate: {speech_feats.get('speaking_rate_wpm', 0):.0f} WPM | "
-                    f"Pauses: {speech_feats.get('pause_count', 0)}"
-                )
-            else:
-                st.caption("Acoustic metrics: Unavailable (Duration: N/A | Rate: N/A)")
-    with c4:
-        with st.container(border=True):
-            st.markdown("### 👁️ Observable Visual Signals")
-            if visual_feats:
-                obs = get_visual_observations(visual_feats)
-                for o in obs:
-                    st.markdown(f"- {o}")
-                hm_c = visual_feats.get('head_movement_count', 'N/A')
-                hm_r = visual_feats.get('head_movement_rate_per_min')
-                hm_disp = f"{hm_c} ({hm_r:.1f}/min, typical: 15-35/min)" if hm_r is not None and hm_c != "N/A" else str(hm_c)
-                st.caption(
-                    f"Face Presence: {'Yes' if visual_feats.get('face_detected') else 'No'} | "
-                    f"Head Movements: {hm_disp} | "
-                    f"Blinks: {visual_feats.get('blink_count', 'N/A')}"
-                )
-            else:
-                st.markdown("- No video input provided, visual analysis not applicable.")
+        else:
+            st.markdown("- No video input provided.")
 
-    # 4. PDF Export
+    st.markdown("────────────────────────────")
+
+    # ANALYSIS COVERAGE
+    with st.expander("ANALYSIS COVERAGE"):
+        st.markdown(f"**Coverage Score: {score}/100**")
+        for b in breakdown:
+            st.markdown(b, unsafe_allow_html=True)
+
+    st.markdown("────────────────────────────")
+
+    # TRANSCRIPT
+    with st.expander("TRANSCRIPT"):
+        if transcript:
+            st.markdown(f"{transcript}")
+        else:
+            st.caption("No transcript available.")
+
     st.markdown("---")
     pdf_bytes = generate_performance_report(
         person_label=person_label,
@@ -636,9 +637,9 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
         coverage_breakdown=breakdown
     )
     st.download_button(
-        "📄 Download Performance Report (PDF)",
+        "📄 Download Report (PDF)",
         data=pdf_bytes,
-        file_name=f"TruthLens_Performance_Report_{person_id}.pdf",
+        file_name=f"TruthLens_Report_{person_id}.pdf",
         mime="application/pdf",
         type="primary",
         use_container_width=True,
@@ -652,27 +653,16 @@ def render_individual_analysis(person_id: str, person_label: str) -> None:
 
 def render_comparison_view(comp: Dict[str, Any], label_a: str = "Video A", label_b: str = "Video B") -> None:
     """Render side-by-side comparative analysis, metric deltas, and mathematical winner."""
-    st.markdown("---")
-    st.header("⚖️ Comparative Performance Assessment")
+    st.markdown(section_divider_glow_html(), unsafe_allow_html=True)
 
-    # 1. Winner / Outcome Badge
     outcome = comp.get("outcome_badge", "Comparable Result")
     explanation = comp.get("explanation", "")
-    if "Video" in outcome:
-        st.success(f"### {outcome}")
-    elif "Comparable" in outcome:
-        st.info(f"### {outcome}")
-    else:
-        st.warning(f"### {outcome}")
+    st.markdown(comparison_verdict_hero_html(outcome, explanation), unsafe_allow_html=True)
 
-    if explanation:
-        st.markdown(f"**Measurement Rationale:** {explanation}")
-
-    # 2. Side-by-Side Metric Deltas
     metric_deltas = comp.get("metric_deltas", [])
     if metric_deltas:
-        st.markdown("---")
-        st.subheader("📊 Measured Communication Signal Deltas")
+        st.markdown(section_divider_glow_html(), unsafe_allow_html=True)
+        st.markdown(section_label_chip_html("Signal Comparison"), unsafe_allow_html=True)
         for m in metric_deltas:
             col_m1, col_m2, col_m3 = st.columns([1, 1, 2])
             with col_m1:
@@ -680,43 +670,41 @@ def render_comparison_view(comp: Dict[str, Any], label_a: str = "Video A", label
             with col_m2:
                 st.metric(f"{label_b} {m['metric']}", m['val_b'], delta=m['delta'])
             with col_m3:
-                st.info(f"💡 {m['interpretation']}")
+                st.markdown(f"<div style='font-size:0.9rem;color:var(--tl-text-secondary);margin-top:0.4rem;'>💡 <strong>Interpretation:</strong> {m['interpretation']}</div>", unsafe_allow_html=True)
 
-    # 3. Category Score Deltas
     cat_comps = comp.get("category_comparisons", [])
     if cat_comps:
-        st.markdown("---")
-        st.subheader("🎯 Performance Category Comparison")
+        st.markdown(section_divider_glow_html(), unsafe_allow_html=True)
+        st.markdown(section_label_chip_html("Category Scores"), unsafe_allow_html=True)
         cols = st.columns(len(cat_comps))
         for idx, c in enumerate(cat_comps):
             with cols[idx]:
-                with st.container(border=True):
-                    st.markdown(f"**{c['category']}**")
-                    st.caption(f"Weight: {c['weight']}")
-                    st.write(f"{label_a}: **{c['score_a']}**")
-                    st.write(f"{label_b}: **{c['score_b']}**")
-                    st.markdown(f"Delta: `{c['delta']}`")
-                    st.caption(f"Status: {c['status']}")
+                st.markdown(f"<div style='font-size:0.95rem;font-weight:700;color:var(--tl-text-primary);'>{c['category']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:0.9rem;'>{label_a}: <strong>{c['score_a']}</strong><br>{label_b}: <strong>{c['score_b']}</strong></div>", unsafe_allow_html=True)
+                delta_color = "var(--tl-green-primary)" if "+" in str(c['delta']) else "var(--tl-amber-primary)" if "-" in str(c['delta']) else "var(--tl-text-muted)"
+                st.markdown(f"<div style='font-size:0.85rem;color:{delta_color};font-weight:600;'>Delta: {c['delta']}</div>", unsafe_allow_html=True)
+                st.caption(f"Status: {c['status']}")
 
-    # 4. Narrative / Timeline Differences (if stories exist)
     story_comp = comp.get("story_comparison")
     if story_comp and isinstance(story_comp, dict):
-        st.markdown("---")
-        st.subheader("📖 Information & Narrative Consistency")
+        st.markdown(section_divider_glow_html(), unsafe_allow_html=True)
+        st.markdown(section_label_chip_html("Narrative Consistency"), unsafe_allow_html=True)
         overall = str(story_comp.get("overall_status", "unclear")).lower()
         if overall == "consistent":
-            st.success("🟢 **Narrative Consistency: Consistent** — Both accounts align on chronological events.")
+            st.markdown("<p style='color:var(--tl-green-primary);'>🟢 <strong>Consistent</strong> — Both accounts align on chronological events.</p>", unsafe_allow_html=True)
         elif overall == "discrepancies_found":
-            st.error("🔴 **Narrative Consistency: Discrepancies Found** — Divergent accounts or conflicting details detected.")
+            st.markdown("<p style='color:var(--tl-amber-primary);'>🔴 <strong>Discrepancies Found</strong> — Divergent accounts or conflicting details detected.</p>", unsafe_allow_html=True)
         else:
-            st.info(f"ℹ️ **Narrative Consistency: {overall.replace('_', ' ').title()}**")
+            st.markdown(f"<p style='color:var(--tl-text-primary);'>ℹ️ <strong>{overall.replace('_', ' ').title()}</strong></p>", unsafe_allow_html=True)
 
         summary = story_comp.get("summary")
         if summary:
-            st.write(f"**Story Summary:** {summary}")
+            st.markdown(f"<div style='font-size:0.9rem;color:var(--tl-text-secondary);'><strong>Summary:</strong> {summary}</div>", unsafe_allow_html=True)
 
-    # 5. PDF Comparison Export
-    st.markdown("---")
+        if story_comp.get("semantic_comparison_available") is False:
+            st.caption("ℹ️ Semantic AI Narrative Comparison is currently unavailable (Provider offline or budget exhausted). Displaying rule-based lexical matching.")
+
+    st.markdown(section_divider_glow_html(), unsafe_allow_html=True)
     pdf_bytes = generate_evidence_report(
         comparison_result=story_comp or {},
         story_a=st.session_state.get("story_data_a"),
@@ -728,7 +716,7 @@ def render_comparison_view(comp: Dict[str, Any], label_a: str = "Video A", label
         multimodal_comparison=comp
     )
     st.download_button(
-        "📄 Download Comparison Report (PDF)",
+        "📄 Export Comparison Audit Report (PDF)",
         data=pdf_bytes,
         file_name="TruthLens_Comparison_Report.pdf",
         mime="application/pdf",
@@ -742,8 +730,12 @@ def render_comparison_view(comp: Dict[str, Any], label_a: str = "Video A", label
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def render_feature_live_camera(active_context_key: str) -> None:
-    st.title("🎥 Live Camera Recording")
-    st.caption("Record yourself speaking naturally, analyze communication signals, and receive evidence-based improvement feedback.")
+    st.markdown(top_navigation_bar_html("Live Studio", CONTEXT_DISPLAY_NAMES.get(active_context_key, "Job Interview")), unsafe_allow_html=True)
+    st.markdown(editorial_page_header_html(
+        "LIVE PERFORMANCE",
+        "Record & Analyze",
+        "Capture yourself speaking and receive detailed performance feedback."
+    ), unsafe_allow_html=True)
 
     person_id = "live"
     person_label = "Live Performer"
@@ -752,9 +744,9 @@ def render_feature_live_camera(active_context_key: str) -> None:
     live_video_path = os.path.join(VIDEO_DIR, f"live_session_{session_id}.mp4")
 
     ctx = None
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        st.subheader("📹 Camera Viewport")
+    c_stage, c_guide = st.columns([3, 1])
+    with c_stage:
+        st.markdown(cinematic_hud_stage_overlay("Camera"), unsafe_allow_html=True)
         try:
             from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
             from aiortc.contrib.media import MediaRecorder
@@ -767,30 +759,33 @@ def render_feature_live_camera(active_context_key: str) -> None:
             )
             ctx = webrtc_streamer(
                 key=f"live_camera_capture_{session_id}",
-                mode=WebRtcMode.SENDONLY,
+                mode=WebRtcMode.SENDRECV,
                 rtc_configuration=rtc_config,
                 in_recorder_factory=create_recorder,
-                media_stream_constraints={"video": True, "audio": True}
+                media_stream_constraints={"video": True, "audio": True},
+                video_html_attrs={
+                    "style": {"width": "100%", "border-radius": "16px"},
+                    "controls": False,
+                    "autoPlay": True,
+                    "muted": True,
+                    "playsInline": True
+                }
             )
 
             if ctx and ctx.state.playing:
                 st.session_state["_live_was_recording"] = True
-                st.info("🔴 Recording Active... Speak clearly into your microphone.")
+                st.markdown(recording_live_pulse_html(), unsafe_allow_html=True)
         except Exception as e:
             st.warning(f"Live camera recording component: {e}. You can also use pre-recorded samples.")
 
-    with c2:
-        st.subheader("📋 Instructions")
-        st.info("""1. Click **START** to turn on your webcam and microphone.
-2. Speak naturally for 10–25 seconds.
-3. Click **STOP** to finalize your recording.
-4. Click **▶️ Analyze Performance** below.""")
-
-        # Quick sample video option if camera not physically available in environment
+    with c_guide:
+        st.markdown("### Before you begin")
+        st.markdown("Ensure your face is well-lit and clearly visible. Speak naturally as you would in a real conversation.<br><span style='color:var(--tl-text-secondary);font-size:0.85rem;'><strong>Note:</strong> Performance metrics (speaking rate, acoustic pauses, posture stability, and narrative structure) are analyzed immediately after you finish recording.</span>", unsafe_allow_html=True)
+        
         sample_path = os.path.join(VIDEO_DIR, "test_video_a.mp4")
         if os.path.exists(sample_path):
-            with st.expander("⚡ Load Pre-Recorded Live Test Sample"):
-                if st.button("Use Sample Video for Live Camera", key="btn_use_sample_live"):
+            with st.expander("⚡ Use Pre-Recorded Sample"):
+                if st.button("Load Sample Video", key="btn_use_sample_live", use_container_width=True):
                     shutil.copyfile(sample_path, live_video_path)
                     with open(live_video_path, "rb") as f:
                         curr_hash = hashlib.sha256(f.read()).hexdigest()
@@ -799,10 +794,9 @@ def render_feature_live_camera(active_context_key: str) -> None:
                     st.session_state[video_path_key] = live_video_path
                     st.session_state["live_recorded_this_session"] = True
                     reset_person_downstream(person_id)
-                    st.success("Sample loaded for live analysis.")
+                    st.success("Sample loaded.")
                     st.rerun()
 
-    # Detect when live recording finishes (recorder was playing, now stopped)
     if st.session_state.get("_live_was_recording") and (not ctx or not ctx.state.playing):
         st.session_state["_live_was_recording"] = False
         if os.path.exists(live_video_path) and os.path.getsize(live_video_path) > 0:
@@ -815,22 +809,16 @@ def render_feature_live_camera(active_context_key: str) -> None:
             reset_person_downstream(person_id)
             st.rerun()
 
-    # Action panel when recording is available
     if st.session_state.get(video_path_key) and os.path.exists(st.session_state[video_path_key]):
-        st.markdown("---")
-        st.success("✅ Recording ready for analysis")
-        c_prev, c_act = st.columns([1, 1])
-        with c_prev:
-            st.video(st.session_state[video_path_key])
-        with c_act:
-            st.write("Click below to run the multimodal performance assessment.")
-            if st.button("▶️ Analyze Performance", type="primary", use_container_width=True, key="btn_analyze_live"):
-                run_pipeline(person_id, person_label, context_key=active_context_key)
+        st.markdown(section_divider_glow_html(), unsafe_allow_html=True)
+        st.markdown("### Review & Analyze")
+        st.video(st.session_state[video_path_key])
+        st.markdown("<div style='margin-bottom:1rem;'></div>", unsafe_allow_html=True)
+        if st.button("Analyze Performance", type="primary", use_container_width=True, key="btn_analyze_live"):
+            run_pipeline(person_id, person_label, context_key=active_context_key)
 
-        # Render performance analysis
         render_individual_analysis(person_id, person_label)
 
-    # Sync friendly aliases
     st.session_state["live_recording"] = st.session_state.get(video_path_key)
     st.session_state["live_video"] = st.session_state.get(video_path_key)
     st.session_state["live_transcript"] = st.session_state.get(f"transcript_{person_id}")
@@ -839,70 +827,89 @@ def render_feature_live_camera(active_context_key: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════════════════
 # FEATURE 2: 📁 INDIVIDUAL VIDEO ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def render_feature_individual_video(active_context_key: str) -> None:
-    st.title("📁 Individual Video Analysis")
-    st.caption("Upload a video to receive an individual communication-performance assessment.")
+    st.markdown(top_navigation_bar_html("Video Analysis", CONTEXT_DISPLAY_NAMES.get(active_context_key, "Job Interview")), unsafe_allow_html=True)
+    st.markdown(editorial_page_header_html(
+        "INDIVIDUAL PERFORMANCE",
+        "Analyze Your Video",
+        "Upload a recording to get detailed communication performance feedback."
+    ), unsafe_allow_html=True)
 
     person_id = "upload"
     person_label = "Individual Performer"
     video_path_key = f"video_path_{person_id}"
     session_id = st.session_state.get("_session_id", "default")
 
-    uploaded_file = st.file_uploader(
-        "Upload Video (MP4, WebM, MOV):",
-        type=["mp4", "webm", "mov"],
-        key=f"uploader_individual_video_{session_id}"
-    )
+    if not (st.session_state.get(video_path_key) and os.path.exists(st.session_state[video_path_key])):
+        st.write("")
+        st.write("")
+        st.write("")
+        st.markdown("""
+        <div style="text-align:center;padding:8rem 0;margin: 2rem 0;background: transparent;">
+            <div style="font-size:2.5rem;font-weight:300;color:var(--tl-text-primary);margin-bottom:0.5rem;letter-spacing:-0.02em;">Drop your canvas here</div>
+            <div style="font-size:1.2rem;color:var(--tl-text-secondary);margin-bottom:2rem;font-weight:300;">MP4, WEBM, or MOV up to 200MB</div>
+        """, unsafe_allow_html=True)
+        
+        c_ul_left, c_ul_center, c_ul_right = st.columns([1, 2, 1])
+        with c_ul_center:
+            uploaded_file = st.file_uploader(
+                "Drop your recording:",
+                type=["mp4", "webm", "mov"],
+                key=f"uploader_individual_video_{session_id}",
+                label_visibility="hidden"
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.write("")
+        st.write("")
+        st.write("")
 
-    if uploaded_file:
-        buffer = uploaded_file.getbuffer()
-        file_hash = hashlib.sha256(buffer).hexdigest()
+        if uploaded_file:
+            buffer = uploaded_file.getbuffer()
+            file_hash = hashlib.sha256(buffer).hexdigest()
 
-        if st.session_state.get(f"media_hash_{person_id}") != file_hash:
-            st.session_state[f"media_hash_{person_id}"] = file_hash
-            save_path = os.path.join(VIDEO_DIR, f"individual_video_{session_id}.mp4")
-            with open(save_path, "wb") as f:
-                f.write(buffer)
-            st.session_state[video_path_key] = save_path
-            reset_person_downstream(person_id)
-            st.success("✅ Video ready for analysis")
-
-    # Also support selecting existing sample from repo for testing
-    sample_files = [f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")]
-    if sample_files and not st.session_state.get(video_path_key):
-        with st.expander("⚡ Or Select a Test Video from Repository"):
-            chosen = st.selectbox("Choose sample video:", sample_files, key="select_sample_individual")
-            if st.button("Load Selected Video", key="btn_load_sample_individual"):
-                chosen_path = os.path.join(VIDEO_DIR, chosen)
-                save_path = os.path.join(VIDEO_DIR, f"individual_video_{session_id}.mp4")
-                shutil.copyfile(chosen_path, save_path)
-                with open(save_path, "rb") as f:
-                    file_hash = hashlib.sha256(f.read()).hexdigest()
+            if st.session_state.get(f"media_hash_{person_id}") != file_hash:
                 st.session_state[f"media_hash_{person_id}"] = file_hash
+                save_path = os.path.join(VIDEO_DIR, f"individual_video_{session_id}.mp4")
+                with open(save_path, "wb") as f:
+                    f.write(buffer)
                 st.session_state[video_path_key] = save_path
                 reset_person_downstream(person_id)
-                st.success("Sample video loaded.")
                 st.rerun()
 
-    if st.session_state.get(video_path_key) and os.path.exists(st.session_state[video_path_key]):
-        st.markdown("---")
-        st.success("✅ Video ready for analysis")
-        c_prev, c_act = st.columns([1, 1])
-        with c_prev:
-            st.video(st.session_state[video_path_key])
-        with c_act:
-            st.write("Click below to run the individual performance assessment.")
-            if st.button("▶️ Analyze Performance", type="primary", use_container_width=True, key="btn_analyze_individual"):
-                run_pipeline(person_id, person_label, context_key=active_context_key)
+        sample_files = [f for f in os.listdir(VIDEO_DIR) if f.endswith(".mp4")]
+        if sample_files:
+            with st.expander("Or use a sample video"):
+                chosen = st.selectbox("Choose sample video:", sample_files, key="select_sample_individual")
+                if st.button("Load Sample", key="btn_load_sample_individual", use_container_width=True):
+                    chosen_path = os.path.join(VIDEO_DIR, chosen)
+                    save_path = os.path.join(VIDEO_DIR, f"individual_video_{session_id}.mp4")
+                    shutil.copyfile(chosen_path, save_path)
+                    with open(save_path, "rb") as f:
+                        file_hash = hashlib.sha256(f.read()).hexdigest()
+                    st.session_state[f"media_hash_{person_id}"] = file_hash
+                    st.session_state[video_path_key] = save_path
+                    reset_person_downstream(person_id)
+                    st.rerun()
+    else:
+        st.markdown("<div style='font-size:1.4rem;font-weight:600;color:var(--tl-text-primary);margin-bottom:1rem;'>VIDEO PREVIEW</div>", unsafe_allow_html=True)
+        st.video(st.session_state[video_path_key])
+        
+        file_size_mb = os.path.getsize(st.session_state[video_path_key]) / (1024*1024)
+        st.markdown(f"<div style='font-size:0.9rem;color:var(--tl-text-secondary);margin:0.5rem 0 1.5rem 0;'>File Size: {file_size_mb:.1f} MB</div>", unsafe_allow_html=True)
 
-        # Render performance analysis
+        if st.button("Analyze Performance", type="primary", use_container_width=True, key="btn_analyze_individual"):
+            run_pipeline(person_id, person_label, context_key=active_context_key)
+            
+        if st.button("Upload a different video", use_container_width=True):
+            st.session_state[video_path_key] = None
+            reset_person_downstream(person_id)
+            st.rerun()
+
         render_individual_analysis(person_id, person_label)
 
-    # Sync friendly aliases
     st.session_state["individual_video"] = st.session_state.get(video_path_key)
     st.session_state["individual_video_path"] = st.session_state.get(video_path_key)
     st.session_state["individual_transcript"] = st.session_state.get(f"transcript_{person_id}")
@@ -919,98 +926,99 @@ render_feature_upload_video = render_feature_individual_video
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def render_feature_compare_videos(active_context_key: str) -> None:
-    st.title("⚖️ Compare & Assess")
-    st.caption("Analyze two recordings independently and compare measured communication signals side-by-side.")
+    st.markdown(top_navigation_bar_html("Compare", CONTEXT_DISPLAY_NAMES.get(active_context_key, "Job Interview")), unsafe_allow_html=True)
+    st.markdown(editorial_page_header_html(
+        "COMPARATIVE PERFORMANCE",
+        "Side-by-Side Analysis",
+        "Analyze two recordings independently and compare their communication performance."
+    ), unsafe_allow_html=True)
 
     session_id = st.session_state.get("_session_id", "default")
-    col_a, col_b = st.columns(2)
-
-    # ── VIDEO A PANEL ────────────────────────────────────────────────────────
+    
+    col_a, col_vs, col_b = st.columns([1, 0.1, 1])
+    
     with col_a:
-        with st.container(border=True):
-            st.subheader("📹 Video A")
-            video_a_key = "video_path_a"
-            upload_a = st.file_uploader("Upload Video A:", type=["mp4", "webm", "mov"], key=f"upload_comp_a_{session_id}")
+        st.markdown("### Person A")
+        video_a_key = "video_path_a"
+        
+        if not st.session_state.get(video_a_key):
+            upload_a = st.file_uploader("Upload Video A", type=["mp4", "webm", "mov"], key=f"upload_comp_a_{session_id}", label_visibility="hidden")
             if upload_a:
                 buf_a = upload_a.getbuffer()
-                hash_a = hashlib.sha256(buf_a).hexdigest()
-                if st.session_state.get("media_hash_a") != hash_a:
-                    st.session_state["media_hash_a"] = hash_a
-                    path_a = os.path.join(VIDEO_DIR, f"compare_video_a_{session_id}.mp4")
-                    with open(path_a, "wb") as f:
-                        f.write(buf_a)
-                    st.session_state[video_a_key] = path_a
-                    reset_person_downstream("a")
-                    st.success("✅ Video A ready")
+                st.session_state["media_hash_a"] = hashlib.sha256(buf_a).hexdigest()
+                path_a = os.path.join(VIDEO_DIR, f"compare_video_a_{session_id}.mp4")
+                with open(path_a, "wb") as f:
+                    f.write(buf_a)
+                st.session_state[video_a_key] = path_a
+                reset_person_downstream("a")
+                st.rerun()
 
-            # Fallback repo selection for Video A
             test_a_path = os.path.join(VIDEO_DIR, "test_video_a.mp4")
-            if not st.session_state.get(video_a_key) and os.path.exists(test_a_path):
-                if st.button("⚡ Use Sample Video A (test_video_a.mp4)", key="btn_sample_comp_a"):
-                    with open(test_a_path, "rb") as f:
-                        st.session_state["media_hash_a"] = hashlib.sha256(f.read()).hexdigest()
-                    path_a = os.path.join(VIDEO_DIR, f"compare_video_a_{session_id}.mp4")
-                    shutil.copyfile(test_a_path, path_a)
-                    st.session_state[video_a_key] = path_a
-                    reset_person_downstream("a")
-                    st.rerun()
-
-            if st.session_state.get(video_a_key) and os.path.exists(st.session_state[video_a_key]):
-                st.video(st.session_state[video_a_key])
-                if st.button("▶️ Analyze Video A", type="primary", use_container_width=True, key="btn_run_a"):
-                    run_pipeline("a", "Video A", context_key=active_context_key)
-
-            # Concise Video A summary badge and individual results breakdown
+            if os.path.exists(test_a_path):
+                with st.expander("Use Sample"):
+                    if st.button("Sample Video A", key="btn_sample_comp_a", use_container_width=True):
+                        with open(test_a_path, "rb") as f:
+                            st.session_state["media_hash_a"] = hashlib.sha256(f.read()).hexdigest()
+                        path_a = os.path.join(VIDEO_DIR, f"compare_video_a_{session_id}.mp4")
+                        shutil.copyfile(test_a_path, path_a)
+                        st.session_state[video_a_key] = path_a
+                        reset_person_downstream("a")
+                        st.rerun()
+        else:
+            st.video(st.session_state[video_a_key])
+            if st.button("Clear Video A"):
+                st.session_state[video_a_key] = None
+                reset_person_downstream("a")
+                st.rerun()
             if st.session_state.get("evaluation_data_a"):
-                sc_a, _ = calculate_analysis_coverage("a")
-                st.success(f"✓ Video A Analyzed (Coverage: {sc_a}/100)")
-                with st.expander("📊 View Video A Individual Assessment", expanded=False):
+                st.markdown("✅ **Analyzed**")
+                with st.expander("View Details"):
                     render_individual_analysis("a", "Video A")
 
-    # ── VIDEO B PANEL ────────────────────────────────────────────────────────
+    with col_vs:
+        st.markdown("<div style='height:100%;display:flex;align-items:center;justify-content:center;opacity:0.5;'></div>", unsafe_allow_html=True)
+        st.markdown(comparison_vs_nexus_html(), unsafe_allow_html=True)
+
     with col_b:
-        with st.container(border=True):
-            st.subheader("📹 Video B")
-            video_b_key = "video_path_b"
-            upload_b = st.file_uploader("Upload Video B:", type=["mp4", "webm", "mov"], key=f"upload_comp_b_{session_id}")
+        st.markdown("### Person B")
+        video_b_key = "video_path_b"
+        
+        if not st.session_state.get(video_b_key):
+            upload_b = st.file_uploader("Upload Video B", type=["mp4", "webm", "mov"], key=f"upload_comp_b_{session_id}", label_visibility="hidden")
             if upload_b:
                 buf_b = upload_b.getbuffer()
-                hash_b = hashlib.sha256(buf_b).hexdigest()
-                if st.session_state.get("media_hash_b") != hash_b:
-                    st.session_state["media_hash_b"] = hash_b
-                    path_b = os.path.join(VIDEO_DIR, f"compare_video_b_{session_id}.mp4")
-                    with open(path_b, "wb") as f:
-                        f.write(buf_b)
-                    st.session_state[video_b_key] = path_b
-                    reset_person_downstream("b")
-                    st.success("✅ Video B ready")
+                st.session_state["media_hash_b"] = hashlib.sha256(buf_b).hexdigest()
+                path_b = os.path.join(VIDEO_DIR, f"compare_video_b_{session_id}.mp4")
+                with open(path_b, "wb") as f:
+                    f.write(buf_b)
+                st.session_state[video_b_key] = path_b
+                reset_person_downstream("b")
+                st.rerun()
 
-            # Fallback repo selection for Video B
             test_b_path = os.path.join(VIDEO_DIR, "test_video_b.mp4")
-            if not st.session_state.get(video_b_key) and os.path.exists(test_b_path):
-                if st.button("⚡ Use Sample Video B (test_video_b.mp4)", key="btn_sample_comp_b"):
-                    with open(test_b_path, "rb") as f:
-                        st.session_state["media_hash_b"] = hashlib.sha256(f.read()).hexdigest()
-                    path_b = os.path.join(VIDEO_DIR, f"compare_video_b_{session_id}.mp4")
-                    shutil.copyfile(test_b_path, path_b)
-                    st.session_state[video_b_key] = path_b
-                    reset_person_downstream("b")
-                    st.rerun()
-
-            if st.session_state.get(video_b_key) and os.path.exists(st.session_state[video_b_key]):
-                st.video(st.session_state[video_b_key])
-                if st.button("▶️ Analyze Video B", type="primary", use_container_width=True, key="btn_run_b"):
-                    run_pipeline("b", "Video B", context_key=active_context_key)
-
-            # Concise Video B summary badge and individual results breakdown
+            if os.path.exists(test_b_path):
+                with st.expander("Use Sample"):
+                    if st.button("Sample Video B", key="btn_sample_comp_b", use_container_width=True):
+                        with open(test_b_path, "rb") as f:
+                            st.session_state["media_hash_b"] = hashlib.sha256(f.read()).hexdigest()
+                        path_b = os.path.join(VIDEO_DIR, f"compare_video_b_{session_id}.mp4")
+                        shutil.copyfile(test_b_path, path_b)
+                        st.session_state[video_b_key] = path_b
+                        reset_person_downstream("b")
+                        st.rerun()
+        else:
+            st.video(st.session_state[video_b_key])
+            if st.button("Clear Video B"):
+                st.session_state[video_b_key] = None
+                reset_person_downstream("b")
+                st.rerun()
             if st.session_state.get("evaluation_data_b"):
-                sc_b, _ = calculate_analysis_coverage("b")
-                st.success(f"✓ Video B Analyzed (Coverage: {sc_b}/100)")
-                with st.expander("📊 View Video B Individual Assessment", expanded=False):
+                st.markdown("✅ **Analyzed**")
+                with st.expander("View Details"):
                     render_individual_analysis("b", "Video B")
 
-    # ── COMPARISON TRIGGER & DISPLAY ─────────────────────────────────────────
-    st.markdown("---")
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
     can_compare = (
         bool(st.session_state.get("evaluation_data_a"))
         and bool(st.session_state.get("evaluation_data_b"))
@@ -1021,9 +1029,9 @@ def render_feature_compare_videos(active_context_key: str) -> None:
     )
 
     if not both_videos_uploaded and not can_compare:
-        st.info("💡 Upload or select Video A and Video B above to enable comparative assessment.")
+        st.markdown("<p style='text-align:center;color:var(--tl-text-secondary);'>Stage both Person A and Person B above to run the comparison.</p>", unsafe_allow_html=True)
     else:
-        btn_label = "⚖️ Analyze & Compare" if not can_compare else "⚖️ Compare Measured Performance"
+        btn_label = "Analyze & Compare Performance"
         if st.button(btn_label, type="primary", use_container_width=True, key="btn_compare_exec"):
             if not st.session_state.get("evaluation_data_a"):
                 run_pipeline("a", "Video A", context_key=active_context_key)
@@ -1047,12 +1055,11 @@ def render_feature_compare_videos(active_context_key: str) -> None:
                     )
                     st.session_state["multimodal_comparison"] = res
             else:
-                st.error("Both Video A and Video B must be successfully analyzed before comparison.")
+                st.markdown("<p style='color:var(--tl-amber-primary);'>Both Video A and Video B must be successfully analyzed before comparison.</p>", unsafe_allow_html=True)
 
         if st.session_state.get("multimodal_comparison"):
             render_comparison_view(st.session_state["multimodal_comparison"], "Video A", "Video B")
 
-    # Sync friendly aliases
     st.session_state["comparison_video_a"] = st.session_state.get("video_path_a")
     st.session_state["comparison_video_b"] = st.session_state.get("video_path_b")
     st.session_state["comparison_analysis_a"] = st.session_state.get("evaluation_data_a")
@@ -1066,36 +1073,37 @@ def render_feature_compare_videos(active_context_key: str) -> None:
 def main():
     init_session_lifecycle()
 
-    # ── Sidebar Navigation & Context ───────────────────────────────────────────
-    st.sidebar.title("TruthLens")
+    # ── Sidebar Luxury Brand & Rail ────────────────────────────────────────────
+    st.sidebar.markdown("""
+    <div style="display:flex;flex-direction:column;gap:0.2rem;padding:0.5rem 0 1.25rem 0;">
+        <div style="display:flex;align-items:center;gap:0.6rem;">
+            <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#22c55e,#16a34a);display:flex;align-items:center;justify-content:center;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M3 12h3m12 0h3M12 3v3m0 12v3"></path>
+                </svg>
+            </div>
+            <div style="font-family:'Inter',sans-serif;font-size:1.1rem;font-weight:700;color:#fafafa;letter-spacing:-0.02em;">TruthLens <span style="font-size:0.8rem;font-weight:500;color:#22c55e;margin-left:2px;">AI</span></div>
+        </div>
+        <div style="font-size:0.7rem;color:#a1a1aa;margin-top:0.2rem;margin-left:2.3rem;">Performance Intelligence</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Canonical Feature Navigation State (Single Source of Truth)
-    current_feature = st.session_state.get("active_feature", DEFAULT_FEATURE)
-    if current_feature not in ALL_FEATURES:
-        current_feature = DEFAULT_FEATURE
-        st.session_state["active_feature"] = current_feature
+    if "active_feature" not in st.session_state:
+        st.session_state["active_feature"] = DEFAULT_FEATURE
 
-    current_idx = ALL_FEATURES.index(current_feature)
-
-    def _on_feature_nav_change():
-        chosen = st.session_state.get("sidebar_primary_nav")
-        if chosen in ALL_FEATURES:
-            st.session_state["active_feature"] = chosen
-
-    feature_mode = st.sidebar.radio(
-        "Select Feature:",
+    st.sidebar.markdown("<div style='font-size:0.7rem;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;'>WORKSPACE</div>", unsafe_allow_html=True)
+    selected_feature = st.sidebar.radio(
+        "Workspace Navigation",
+        label_visibility="collapsed",
         options=ALL_FEATURES,
-        index=current_idx,
-        key="sidebar_primary_nav",
-        on_change=_on_feature_nav_change
+        key="active_feature"
     )
+    st.session_state["sidebar_primary_nav"] = selected_feature
 
-    # Immediately lock canonical state to the selected option
-    selected_feature = feature_mode if feature_mode in ALL_FEATURES else st.session_state.get("active_feature", DEFAULT_FEATURE)
-    st.session_state["active_feature"] = selected_feature
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Evaluation Context")
+    st.sidebar.markdown(section_divider_glow_html(), unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='font-size:0.7rem;font-weight:600;color:#71717a;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;'>CONTEXT</div>", unsafe_allow_html=True)
     context_display = st.sidebar.selectbox(
         "Circumstance Profile:",
         ["💼 Job Interview", "🚀 VC Pitch Presentation", "☕ Casual Team Meeting"],
@@ -1118,7 +1126,7 @@ def main():
         st.session_state["multimodal_comparison"] = None
 
     # Reset entire session action
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(section_divider_glow_html(), unsafe_allow_html=True)
     if st.sidebar.button("🔄 Reset Analysis Session", use_container_width=True):
         st.session_state["_session_id"] = uuid.uuid4().hex[:12]
         for pid in ["live", "upload", "a", "b"]:
@@ -1131,6 +1139,8 @@ def main():
         st.session_state["_live_was_recording"] = False
         st.session_state["live_recorded_this_session"] = False
         st.rerun()
+
+
 
     # ── Feature Routing (Canonical Single Source of Truth) ─────────────────────
     if selected_feature == FEATURE_LIVE_CAMERA:

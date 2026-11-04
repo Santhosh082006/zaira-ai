@@ -10,6 +10,10 @@ Tests:
 4. Switching between all 3 features in various cycles keeps sidebar and main 100% synchronized.
 5. Reset Analysis Session preserves canonical navigation without desynchronization.
 6. Browser reload simulation initializes single source of truth without desynchronization.
+
+NOTE: Feature page headers now use st.markdown() with custom HTML rather than st.title().
+      Verification is based on canonical session_state and sidebar radio values, with
+      markdown content checks for the feature title text.
 """
 
 import sys
@@ -33,6 +37,27 @@ from core.constants import (
 )
 
 
+FEATURE_PAGE_INDICATORS = {
+    FEATURE_LIVE_CAMERA: "Record & Analyze",
+    FEATURE_INDIVIDUAL_VIDEO: "Analyze Your Video",
+    FEATURE_COMPARE_ASSESS: "Side-by-Side Analysis",
+}
+
+
+def _find_feature_in_markdown(at, feature_name: str) -> bool:
+    """Check if the feature page title appears in any markdown element on the main page.
+
+    Since features render titles via st.markdown() with custom HTML page headers,
+    we search all main-page markdown values for the feature's primary header or identifier.
+    """
+    indicator = FEATURE_PAGE_INDICATORS.get(feature_name, feature_name)
+    for md in at.main.markdown:
+        val = md.value or ""
+        if indicator in val or feature_name in val:
+            return True
+    return False
+
+
 class TestFeatureNavigationSync(unittest.TestCase):
 
     def test_01_initial_navigation_synchronized(self):
@@ -45,11 +70,11 @@ class TestFeatureNavigationSync(unittest.TestCase):
         self.assertEqual(at.session_state["active_feature"], FEATURE_LIVE_CAMERA)
         self.assertEqual(at.session_state["sidebar_primary_nav"], FEATURE_LIVE_CAMERA)
 
-        # Check main page title
-        titles = [t.value for t in at.main.title]
-        self.assertIn(FEATURE_LIVE_CAMERA, titles)
-        self.assertNotIn(FEATURE_INDIVIDUAL_VIDEO, titles)
-        self.assertNotIn(FEATURE_COMPARE_ASSESS, titles)
+        # Check main page renders the Live Camera title (via markdown)
+        self.assertTrue(
+            _find_feature_in_markdown(at, FEATURE_LIVE_CAMERA),
+            f"Main page did not render '{FEATURE_LIVE_CAMERA}' in markdown"
+        )
 
     def test_02_switch_to_individual_video_synchronized(self):
         """Verify selecting Individual Video Analysis immediately updates both sidebar and main."""
@@ -65,10 +90,13 @@ class TestFeatureNavigationSync(unittest.TestCase):
         self.assertEqual(at.session_state["sidebar_primary_nav"], FEATURE_INDIVIDUAL_VIDEO)
 
         # Main page MUST render Individual Video Analysis title
-        titles = [t.value for t in at.main.title]
-        self.assertIn(FEATURE_INDIVIDUAL_VIDEO, titles)
-        self.assertNotIn(FEATURE_LIVE_CAMERA, titles)
-        self.assertNotIn(FEATURE_COMPARE_ASSESS, titles)
+        self.assertTrue(
+            _find_feature_in_markdown(at, FEATURE_INDIVIDUAL_VIDEO),
+            f"Main page did not render '{FEATURE_INDIVIDUAL_VIDEO}' in markdown"
+        )
+        # Ensure other feature titles are not rendered
+        self.assertFalse(_find_feature_in_markdown(at, FEATURE_LIVE_CAMERA))
+        self.assertFalse(_find_feature_in_markdown(at, FEATURE_COMPARE_ASSESS))
 
     def test_03_switch_to_compare_assess_synchronized(self):
         """Verify selecting Compare & Assess immediately updates both sidebar and main."""
@@ -84,10 +112,12 @@ class TestFeatureNavigationSync(unittest.TestCase):
         self.assertEqual(at.session_state["sidebar_primary_nav"], FEATURE_COMPARE_ASSESS)
 
         # Main page MUST render Compare & Assess title
-        titles = [t.value for t in at.main.title]
-        self.assertIn(FEATURE_COMPARE_ASSESS, titles)
-        self.assertNotIn(FEATURE_LIVE_CAMERA, titles)
-        self.assertNotIn(FEATURE_INDIVIDUAL_VIDEO, titles)
+        self.assertTrue(
+            _find_feature_in_markdown(at, FEATURE_COMPARE_ASSESS),
+            f"Main page did not render '{FEATURE_COMPARE_ASSESS}' in markdown"
+        )
+        self.assertFalse(_find_feature_in_markdown(at, FEATURE_LIVE_CAMERA))
+        self.assertFalse(_find_feature_in_markdown(at, FEATURE_INDIVIDUAL_VIDEO))
 
     def test_04_cyclic_switching_multiple_times(self):
         """Verify cycling back and forth between all 3 features keeps sidebar and main in sync every time."""
@@ -108,12 +138,17 @@ class TestFeatureNavigationSync(unittest.TestCase):
             at.sidebar.radio[0].set_value(target_feature).run()
             self.assertEqual(at.sidebar.radio[0].value, target_feature, f"Sidebar radio failed to reflect {target_feature}")
             self.assertEqual(at.session_state["active_feature"], target_feature, f"Canonical state failed to reflect {target_feature}")
-            titles = [t.value for t in at.main.title]
-            self.assertIn(target_feature, titles, f"Main page failed to render title for {target_feature}")
+            self.assertTrue(
+                _find_feature_in_markdown(at, target_feature),
+                f"Main page failed to render title for {target_feature}"
+            )
             # Ensure other feature titles are not rendered
             for other in ALL_FEATURES:
                 if other != target_feature:
-                    self.assertNotIn(other, titles, f"Main page erroneously rendered {other} while {target_feature} was active")
+                    self.assertFalse(
+                        _find_feature_in_markdown(at, other),
+                        f"Main page erroneously rendered {other} while {target_feature} was active"
+                    )
 
     def test_05_reset_session_preserves_navigation(self):
         """Verify clicking Reset Analysis Session preserves navigation state without desync."""
@@ -132,8 +167,10 @@ class TestFeatureNavigationSync(unittest.TestCase):
         # Should still be on Individual Video Analysis
         self.assertEqual(at.sidebar.radio[0].value, FEATURE_INDIVIDUAL_VIDEO)
         self.assertEqual(at.session_state["active_feature"], FEATURE_INDIVIDUAL_VIDEO)
-        titles = [t.value for t in at.main.title]
-        self.assertIn(FEATURE_INDIVIDUAL_VIDEO, titles)
+        self.assertTrue(
+            _find_feature_in_markdown(at, FEATURE_INDIVIDUAL_VIDEO),
+            f"Main page did not render '{FEATURE_INDIVIDUAL_VIDEO}' after reset"
+        )
 
 
 if __name__ == "__main__":

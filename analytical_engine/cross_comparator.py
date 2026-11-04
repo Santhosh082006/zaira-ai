@@ -105,7 +105,7 @@ def compare_multimodal_performance(
             "val_a": f"{hm_rate_a:.1f}/min",
             "val_b": f"{hm_rate_b:.1f}/min",
             "delta": f"{'+' if delta_hm >= 0 else ''}{delta_hm:.1f}/min",
-            "interpretation": f"{label_b} shifted posture {abs(delta_hm):.1f}/min {'more frequently' if delta_hm > 0 else 'less frequently'} (target: {profile.movement_rate_min:.0f}-{profile.movement_rate_max:.0f}/min)."
+            "interpretation": f"{label_b} shifted posture {abs(delta_hm):.1f}/min {'more frequently' if delta_hm > 0 else 'less frequently'} (reference: {profile.movement_rate_min:.0f}-{profile.movement_rate_max:.0f}/min, descriptive observation)."
         })
 
     # Face Presence Ratio
@@ -118,7 +118,7 @@ def compare_multimodal_performance(
             "val_a": f"{fp_a:.0%}",
             "val_b": f"{fp_b:.0%}",
             "delta": f"{'+' if delta_fp >= 0 else ''}{delta_fp:.1f}%",
-            "interpretation": f"{label_b} maintained {abs(delta_fp):.1f}% {'higher' if delta_fp > 0 else 'lower'} continuous frame alignment."
+            "interpretation": f"{label_b} maintained {abs(delta_fp):.1f}% {'higher' if delta_fp > 0 else 'lower'} face presence in camera viewport."
         })
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -131,12 +131,20 @@ def compare_multimodal_performance(
     total_active_weight = 0.0
     factors_responsible: List[str] = []
 
+    CATEGORY_TITLE_MAP = {
+        CAT_STORY_QUALITY: "Narrative Detail",
+        CAT_ENGAGEMENT: "Camera Presence",
+        CAT_CONFIDENCE: "Delivery Composure",
+        CAT_SPEAKING_STYLE: "Speaking Style",
+        CAT_BODY_LANGUAGE: "Body Language",
+    }
+
     for cat in ALL_CATEGORIES:
         score_a_raw = eval_a.get(cat, {}).get("score")
         score_b_raw = eval_b.get(cat, {}).get("score")
 
         weight = profile.category_weights.get(cat, 0.20)
-        cat_title = cat.replace("_", " ").title()
+        cat_title = CATEGORY_TITLE_MAP.get(cat, cat.replace("_", " ").title())
 
         is_a_numeric = isinstance(score_a_raw, (int, float))
         is_b_numeric = isinstance(score_b_raw, (int, float))

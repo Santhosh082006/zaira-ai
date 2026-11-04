@@ -63,3 +63,14 @@ video/
 logs/
 debug_log.txt
 scratch/*.log
+
+# ── Local Development & Temporary Scratch ───────────────────────────────────────
+.sessions/
+scratch/
+scratch_*.png
+test_composite_*.png
+test_crop_*.png
+test_speaking_*.png
+clean_open_mouth.png
+frontend/node_modules/
+frontend/.next/

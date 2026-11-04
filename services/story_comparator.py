@@ -221,11 +221,18 @@ def compare_stories(
         data = _parse_comparison_response(raw_response)
         is_valid, _ = validate_comparison(data)
         if is_valid:
+            data["semantic_comparison_available"] = True
+            data["comparison_mode"] = "semantic_llm"
             return _post_process_comparisons(data)
     except Exception as e:
         print(f"LLM comparison unavailable or failed ({e}), using evidence-based heuristic story comparator.")
 
     data = _deterministic_story_comparison(story_a, story_b)
+    data["semantic_comparison_available"] = False
+    data["comparison_mode"] = "lexical_heuristic"
+    data["comparison_limitations"] = [
+        "Semantic AI narrative comparison is unavailable. Narrative timeline alignment displayed is based on rule-based lexical matching."
+    ]
     return _post_process_comparisons(data)
 
 

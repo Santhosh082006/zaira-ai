@@ -391,11 +391,11 @@ def generate_performance_report(
         except Exception:
             pass
         dims = [
-            ("confidence_indicators", "Confidence Indicators"),
+            ("confidence_indicators", "Delivery Composure"),
             ("body_language", "Body Language & Posture"),
             ("speaking_style", "Speaking Style & Fluency"),
-            ("engagement", "Engagement & Delivery"),
-            ("story_quality", "Story Quality & Structure")
+            ("engagement", "Camera Presence"),
+            ("story_quality", "Narrative Detail")
         ]
         for k, name in dims:
             item = eval_data.get(k)

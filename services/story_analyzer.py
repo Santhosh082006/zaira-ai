@@ -449,12 +449,13 @@ def _enforce_data_integrity(
             if "range" not in obs and "reference" not in obs and "movement" not in obs.lower() and "supporting data" not in obs.lower():
                 bl_item["evidence_observation"] = f"Supporting data: {hm_rate:.1f} movements/min (reference: 15-35/min) | {obs}".strip(" |")
 
-    # 3. Engagement requires camera tracking
+    # 3. Engagement / Camera presence requires camera tracking
     if not has_valid_visual:
         eval_data["engagement"] = {
             "score": "Insufficient Data",
-            "assessment": "Engagement signals require active camera tracking to measure face visibility.",
-            "evidence_observation": "No facial landmark stream available to evaluate camera face presence.",
+            "metric_name": "Camera Presence",
+            "assessment": "Camera presence signals require active camera tracking to measure face visibility.",
+            "evidence_observation": "No facial landmark stream available. Camera presence is unmeasured.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
             "practical_recommendation": "Position yourself centered in the camera viewport with clear lighting."
@@ -464,6 +465,7 @@ def _enforce_data_integrity(
     if not has_valid_speech and not has_valid_visual:
         eval_data["confidence_indicators"] = {
             "score": "Insufficient Data",
+            "metric_name": "Delivery Composure",
             "assessment": "Insufficient multimodal behavioral signals to evaluate delivery composure.",
             "evidence_observation": "Acoustic and visual streams lack sufficient measurable signals.",
             "what_went_well": "N/A",
@@ -471,12 +473,13 @@ def _enforce_data_integrity(
             "practical_recommendation": "Record both clear microphone audio and forward-facing video."
         }
 
-    # 5. Story quality requires transcript
+    # 5. Story quality / Narrative detail requires transcript
     if not has_valid_transcript:
         eval_data["story_quality"] = {
             "score": "Insufficient Data",
-            "assessment": "No transcript available to evaluate narrative structure.",
-            "evidence_observation": "Missing textual account.",
+            "metric_name": "Narrative Detail",
+            "assessment": "No transcript available to evaluate narrative detail.",
+            "evidence_observation": "Missing textual account. Narrative detail is unmeasured.",
             "what_went_well": "N/A",
             "what_needs_improvement": "N/A",
             "practical_recommendation": "Provide a spoken or manual narrative account."

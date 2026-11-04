@@ -1,0 +1,198 @@
+[
+  {
+    "id": "comm_clarity",
+    "name": "Clarity",
+    "category": "COMMUNICATION",
+    "description": "Ability to articulate thoughts clearly without convolution.",
+    "evidence_markers": ["uses clear and direct phrasing", "avoids excessive jargon when not needed", "maintains a logical progression of ideas"]
+  },
+  {
+    "id": "comm_relevance",
+    "name": "Relevance",
+    "category": "COMMUNICATION",
+    "description": "Ability to stay on topic and answer the specific question asked.",
+    "evidence_markers": ["directly addresses the core question", "avoids unrelated tangents", "connects examples back to the main point"]
+  },
+  {
+    "id": "comm_structure",
+    "name": "Structure",
+    "category": "COMMUNICATION",
+    "description": "Ability to organize an answer logically (e.g., STAR method).",
+    "evidence_markers": ["uses structural frameworks like STAR", "has a clear beginning, middle, and end", "uses transition words effectively"]
+  },
+  {
+    "id": "comm_interaction",
+    "name": "Interaction",
+    "category": "COMMUNICATION",
+    "description": "Ability to engage naturally in a conversational format.",
+    "evidence_markers": ["responds dynamically to follow-up context", "acknowledges previous points", "shows active listening in responses"]
+  },
+  {
+    "id": "comm_explanation",
+    "name": "Explanation",
+    "category": "COMMUNICATION",
+    "description": "Ability to explain complex concepts to varied audiences.",
+    "evidence_markers": ["simplifies technical concepts", "uses analogies appropriately", "adjusts terminology to the audience"]
+  },
+  {
+    "id": "eng_fluency",
+    "name": "Fluency",
+    "category": "ENGLISH",
+    "description": "Ability to speak smoothly without excessive pauses or filler words.",
+    "evidence_markers": ["maintains continuous speech", "low filler word ratio", "smooth transitions between sentences"]
+  },
+  {
+    "id": "eng_pronunciation",
+    "name": "Pronunciation",
+    "category": "ENGLISH",
+    "description": "Ability to pronounce words clearly and understandably.",
+    "evidence_markers": ["clearly enunciates consonants and vowels", "correct word stress", "intelligible to native speakers"]
+  },
+  {
+    "id": "eng_grammar",
+    "name": "Grammar",
+    "category": "ENGLISH",
+    "description": "Ability to use correct grammatical structures.",
+    "evidence_markers": ["correct verb tense consistency", "proper subject-verb agreement", "accurate use of prepositions"]
+  },
+  {
+    "id": "eng_vocabulary",
+    "name": "Vocabulary",
+    "category": "ENGLISH",
+    "description": "Ability to use a wide and appropriate range of words.",
+    "evidence_markers": ["uses precise terminology", "avoids repetitive word choice", "demonstrates lexical variety"]
+  },
+  {
+    "id": "eng_sentence_structure",
+    "name": "Sentence Structure",
+    "category": "ENGLISH",
+    "description": "Ability to construct simple, compound, and complex sentences.",
+    "evidence_markers": ["uses complex sentence structures accurately", "avoids run-on sentences", "varies sentence length"]
+  },
+  {
+    "id": "perf_confidence_delivery",
+    "name": "Confidence / Delivery",
+    "category": "PERFORMANCE",
+    "description": "Ability to project confidence through vocal tone and demeanor.",
+    "evidence_markers": ["maintains a steady voice volume", "speaks with conviction", "avoids upward inflection on statements"]
+  },
+  {
+    "id": "perf_eye_contact",
+    "name": "Eye Contact",
+    "category": "PERFORMANCE",
+    "description": "Ability to maintain appropriate eye contact with the camera/interviewer.",
+    "evidence_markers": ["looks directly into the camera frequently", "avoids looking down or away for extended periods", "natural blinking rate"]
+  },
+  {
+    "id": "perf_posture",
+    "name": "Posture",
+    "category": "PERFORMANCE",
+    "description": "Ability to maintain a professional physical presence.",
+    "evidence_markers": ["sits up straight", "avoids excessive slouching or leaning", "keeps shoulders relaxed"]
+  },
+  {
+    "id": "perf_pace",
+    "name": "Pace",
+    "category": "PERFORMANCE",
+    "description": "Ability to speak at an appropriate and understandable speed.",
+    "evidence_markers": ["maintains a generally controlled speaking pace", "adjusts pace appropriately for emphasis", "avoids consistently rushing through responses", "uses pauses appropriately"]
+  },
+  {
+    "id": "perf_engagement",
+    "name": "Engagement",
+    "category": "PERFORMANCE",
+    "description": "Ability to visually and vocally engage the listener.",
+    "evidence_markers": ["uses expressive facial micro-expressions", "uses natural hand gestures", "varies vocal pitch dynamically"]
+  },
+  {
+    "id": "think_problem_solving",
+    "name": "Problem Solving",
+    "category": "THINKING",
+    "description": "Ability to identify a problem and reason through solutions.",
+    "evidence_markers": ["identifies the core problem", "explains reasoning", "proposes a solution", "evaluates alternatives", "explains trade-offs"]
+  },
+  {
+    "id": "think_reasoning",
+    "name": "Reasoning",
+    "category": "THINKING",
+    "description": "Ability to logically deduce conclusions from premises.",
+    "evidence_markers": ["provides logical justification for claims", "connects cause and effect", "avoids logical fallacies"]
+  },
+  {
+    "id": "think_critical_thinking",
+    "name": "Critical Thinking",
+    "category": "THINKING",
+    "description": "Ability to objectively analyze and evaluate an issue.",
+    "evidence_markers": ["questions assumptions", "analyzes multiple perspectives", "bases conclusions on evidence"]
+  },
+  {
+    "id": "think_decision_making",
+    "name": "Decision Making",
+    "category": "THINKING",
+    "description": "Ability to make firm choices and justify them.",
+    "evidence_markers": ["articulates the final decision clearly", "explains the criteria used for the decision", "acknowledges risks in the decision"]
+  },
+  {
+    "id": "int_behavioral_response",
+    "name": "Behavioral Response",
+    "category": "INTERVIEW",
+    "description": "Ability to answer past-experience behavioral questions effectively.",
+    "evidence_markers": ["provides a specific past example", "focuses on own actions rather than team actions", "describes a clear outcome"]
+  },
+  {
+    "id": "int_professionalism",
+    "name": "Professionalism",
+    "category": "INTERVIEW",
+    "description": "Ability to maintain a professional demeanor and tone.",
+    "evidence_markers": ["uses respectful language", "does not speak negatively of past employers", "maintains composure under pressure"]
+  },
+  {
+    "id": "int_teamwork",
+    "name": "Teamwork",
+    "category": "INTERVIEW",
+    "description": "Ability to collaborate effectively with others.",
+    "evidence_markers": ["gives credit to team members", "describes successful collaboration", "explains conflict resolution respectfully"]
+  },
+  {
+    "id": "int_leadership",
+    "name": "Leadership",
+    "category": "INTERVIEW",
+    "description": "Ability to guide, mentor, or lead initiatives.",
+    "evidence_markers": ["describes taking initiative", "explains how they motivated others", "discusses taking responsibility for outcomes"]
+  },
+  {
+    "id": "int_adaptability",
+    "name": "Adaptability",
+    "category": "INTERVIEW",
+    "description": "Ability to adjust to new conditions or changes.",
+    "evidence_markers": ["describes a pivot in strategy", "shows positive attitude toward change", "explains how they learned a new skill quickly"]
+  },
+  {
+    "id": "tech_technical_knowledge",
+    "name": "Technical Knowledge",
+    "category": "TECHNICAL",
+    "description": "Demonstrates awareness and understanding of technical concepts.",
+    "evidence_markers": ["correctly defines technical terms", "lists appropriate tools for a task", "shows familiarity with industry standards"]
+  },
+  {
+    "id": "tech_technical_accuracy",
+    "name": "Technical Accuracy",
+    "category": "TECHNICAL",
+    "description": "Provides factually correct technical information.",
+    "evidence_markers": ["provides technically correct statements", "avoids contradictory technical claims", "correctly describes system behavior"]
+  },
+  {
+    "id": "tech_technical_depth",
+    "name": "Technical Depth",
+    "category": "TECHNICAL",
+    "description": "Demonstrates deep, low-level understanding of a technical area.",
+    "evidence_markers": ["explains underlying mechanics (e.g. memory, network layers)", "discusses edge cases", "differentiates between nuanced technical approaches"]
+  },
+  {
+    "id": "tech_technical_explanation",
+    "name": "Technical Explanation",
+    "category": "TECHNICAL",
+    "description": "Ability to explain technical implementation and reasoning.",
+    "evidence_markers": ["explains technical concepts clearly", "uses technically accurate terminology", "connects concepts to implementation", "provides relevant examples", "explains why a particular approach was chosen"]
+  }
+]
