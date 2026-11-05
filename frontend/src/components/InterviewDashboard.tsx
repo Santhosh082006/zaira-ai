@@ -184,11 +184,19 @@ export default function InterviewDashboard() {
     setQuestionPhase("SPEAKING");
     setSpeechFailed(false);
 
-    // Unlock browser AudioContext during user click gesture
+    // Unlock browser AudioContext and HTMLAudioElement during user click gesture
     if (typeof window !== "undefined") {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         new AudioCtx().resume().catch(() => {});
+      }
+      try {
+        const primeAudio = new Audio();
+        primeAudio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+        primeAudio.volume = 0.01;
+        primeAudio.play().catch(() => {});
+      } catch {
+        // ignore
       }
     }
 
@@ -247,11 +255,19 @@ export default function InterviewDashboard() {
   };
 
   const handleStart = async () => {
-    // Unlock browser AudioContext during user gesture so avatar speech can play immediately
+    // Unlock browser AudioContext and HTMLAudioElement during user gesture
     if (typeof window !== "undefined") {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         new AudioCtx().resume().catch(() => {});
+      }
+      try {
+        const primeAudio = new Audio();
+        primeAudio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+        primeAudio.volume = 0.01;
+        primeAudio.play().catch(() => {});
+      } catch {
+        // ignore
       }
     }
 

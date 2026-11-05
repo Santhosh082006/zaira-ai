@@ -158,15 +158,15 @@ export function InterviewerAvatar({
     const loop = (now: number) => {
       if (!running) return;
 
-      const delta = (now - lastTime) / 1000;
+      const delta = Math.min((now - lastTime) / 1000, 0.05);
       lastTime = now;
 
-      if (isSpeakingRef.current && audioRef.current && !audioRef.current.paused) {
+      if (isSpeakingRef.current) {
         let rawEnergy = 0;
         let lowFreq = 0;
         let midFreq = 0;
 
-        if (analyserRef.current) {
+        if (audioRef.current && !audioRef.current.paused && analyserRef.current) {
           analyserRef.current.getByteFrequencyData(freqData);
 
           // Human speech formants:
@@ -186,10 +186,13 @@ export function InterviewerAvatar({
           midFreq = midSum / (21 * 255);
           rawEnergy = Math.max(lowFreq * 0.9, midFreq * 1.1);
         } else {
-          // Synthetic speech cadence fallback
-          syllabicPhaseRef.current += delta * 14.0;
+          // Robust real-time syllabic cadence whenever speech audio/TTS is active
+          syllabicPhaseRef.current += delta * 13.0;
           const s = Math.sin(syllabicPhaseRef.current) * 0.5 + 0.5;
-          rawEnergy = s > 0.2 ? s * 0.6 : 0;
+          const cadence = Math.sin(syllabicPhaseRef.current * 0.45) * 0.3 + 0.7;
+          rawEnergy = s > 0.12 ? s * cadence * 0.75 : 0;
+          midFreq = rawEnergy;
+          lowFreq = rawEnergy * 0.8;
         }
 
         // Fast attack, natural decay envelope

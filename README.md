@@ -1,152 +1,125 @@
-# TruthLens AI
+# TruthLens AI & Zaira AI Interviewer Suite
 
-TruthLens AI is a multimodal story consistency analyzer. It automates the structured comparison of narrative accounts provided by two different people (Person A and Person B) describing the same event. 
-
-By extracting structured events and claims from transcripts and applying deterministic semantic matching, TruthLens AI reliably highlights matches, conflicts, and missing information. It also extracts behavioral speech and visual signals to serve as supporting context.
-
-**⚠️ IMPORTANT LIMITATIONS**
-- The system **compares information** between accounts.
-- It **does not determine truthfulness or deception**.
-- It **does not produce deception or credibility scores**.
-- Speech and visual signals are **supporting observations only** and must not be treated as proof of lying.
+TruthLens AI is a dual-engine multimodal AI platform combining:
+1. **Zaira AI — Next-Gen AI Interviewer**: A real-time, speech-first AI interview assessment system featuring a photorealistic 2D avatar with real-time audio-driven lip synchronization, live acoustic analysis, WebSocket streaming, and automated evaluation.
+2. **Multimodal Consistency Analyzer**: An objective narrative and video analysis system for comparing spoken accounts, extracting timeline events, evaluating verbal/non-verbal behavioral signals, and generating structured consistency reports.
 
 ---
 
-## Core Workflow
+## ⚡ Quick Start (New Laptop Setup)
 
-TruthLens AI follows a highly structured, strict five-step pipeline:
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Santhosh082006/zaira-ai.git
+cd zaira-ai
+```
 
-1. **Provide Accounts**: Record or enter Person A and Person B's accounts.
-2. **Analyze Stories**: Extract specific events, claims, times, and locations from the transcripts.
-3. **Compare Information**: Run timeline and claim-level semantic comparison.
-4. **Review Evidence**: Review matches, partial matches, conflicts, missing info, and unknowns.
-5. **Export Report**: Download the deterministic Evidence & Consistency Report (PDF).
+### 2. Python Environment Setup
+Ensure Python 3.10+ and `ffmpeg` are installed.
+```bash
+# Create and activate virtual environment
+python -m venv venv
 
-## Main Features
+# Windows:
+venv\Scripts\activate
+# macOS / Linux:
+source venv/bin/activate
 
-- **Multimodal Input**: Supports direct microphone recording, local audio file playback, and webcam video uploads.
-- **Local Transcription**: Uses OpenAI's Whisper model (running locally on-device) to transcribe spoken accounts.
-- **Structured Story Analysis**: Uses LLMs to deterministically map raw text into discrete schema-validated events and claims.
-- **Semantic Comparison Engine**: Intelligently identifies agreements and discrepancies between timelines without relying exclusively on exact keyword matching.
-- **Explainability Layer**: Generates concrete, deterministic explanations pointing directly back to the `source_text` for every match or conflict.
-- **Behavioral Signal Extraction**: Optionally measures acoustic speech features (pitch, energy, pauses) and visual facial features (tracking, blinks, head movements).
-- **Downloadable Reports**: Generates a strictly formatted, objective PDF evidence report.
-- **Demo Mode**: One-click population of deterministic, fictional scenarios and generated TTS audio to seamlessly demonstrate the complete pipeline.
+# Install all backend and analytical dependencies
+pip install -r requirements.txt
+```
 
-## Technology Stack
+### 3. Frontend Setup (Zaira AI)
+Ensure Node.js 18+ is installed.
+```bash
+cd frontend
+npm install
+cd ..
+```
 
-- **Frontend**: Streamlit
-- **Transcription**: `openai-whisper`
-- **LLM Integration**: `google-generativeai`, `openai`, `requests` (Ollama), `python-dotenv`
-- **Audio Processing**: `librosa`, `numpy`
-- **Visual Processing**: `opencv-python-headless`, `mediapipe`
-- **Report Generation**: `fpdf2`
+### 4. Configure Environment Variables
+Copy `.env.example` to `.env`:
+```bash
+cp .env.example .env
+```
+Open `.env` and set your preferred LLM provider (`ollama`, `openrouter`, or `gemini`). For local offline use, install Ollama with `qwen2.5:7b`.
 
 ---
 
-## Project Structure
+## 🚀 Running the Applications
+
+### Option A: One-Click Launcher (Windows)
+Double-click `START_ZAIRA.bat` or run:
+```cmd
+START_ZAIRA.bat
+```
+This automatically starts:
+- **FastAPI Backend** on `http://127.0.0.1:8000`
+- **Next.js Frontend** on `http://127.0.0.1:3000`
+- Opens your browser to the Zaira AI Interview dashboard.
+
+### Option B: Manual Start (Any OS)
+1. **Start the FastAPI Backend**:
+   ```bash
+   venv/Scripts/uvicorn backend.api:app --host 0.0.0.0 --port 8000
+   ```
+2. **Start the Next.js Frontend**:
+   ```bash
+   cd frontend
+   npm run dev -- -H 127.0.0.1 -p 3000
+   ```
+3. Open `http://127.0.0.1:3000` in your browser.
+
+### Option C: Streamlit Multimodal Consistency Studio
+To run the original video/audio comparison studio:
+```bash
+streamlit run app.py
+```
+Opens in your browser at `http://localhost:8501`.
+
+---
+
+## 🎯 Architecture Overview
 
 ```text
-TruthLens-ai/
-├── app.py                      # Main Streamlit application
-├── requirements.txt            # Python dependencies
-├── .env.example                # Environment variable templates
-├── assets/                     # Project media assets (including demo audio)
-├── services/                   # Core application logic
-│   ├── llm_provider.py         # Abstraction layer for Gemini/OpenAI/Ollama/OpenRouter
-│   ├── story_analyzer.py       # Event and claim extraction
-│   ├── story_comparator.py     # Semantic matching and timeline comparison
-│   ├── speech_features.py      # Acoustic signal extraction
-│   ├── visual_features.py      # Face tracking and visual signal extraction
-│   └── report_generator.py     # PDF builder for the consistency report
+Truth-Lens-ai/
+├── START_ZAIRA.bat             # One-click Windows launcher for full suite
+├── requirements.txt            # Python dependencies (FastAPI, Streamlit, ML, Edge-TTS)
+├── .env.example                # Canonical environment template
+├── backend/                    # FastAPI High-Performance Backend
+│   ├── api.py                  # Real API server, WebSockets & health checks
+│   ├── routes/                 # REST endpoints (/interview, /tts, /avatar/token)
+│   └── schemas/                # Pydantic v2 data models & request/response contracts
+├── frontend/                   # Next.js 16 (React 19, Tailwind v4) Web Application
+│   ├── src/app/                # App router and main pages
+│   ├── src/components/         # UI components
+│   │   ├── InterviewDashboard.tsx  # Adaptive interview session manager
+│   │   ├── InterviewerAvatar.tsx   # 2D real-time audio-driven lip-sync avatar
+│   │   ├── AudioRecorder.tsx       # Live speech-to-text candidate recording console
+│   │   └── CompareDashboard.tsx    # Multimodal cross-comparison dashboard
+│   ├── public/images/          # Avatar portraits & 5 anatomical viseme frames
+│   └── public/models/          # 3D Ready Player Me assets & acoustic models
+├── core/                       # Core Analytical & Adaptive Controllers
+│   ├── interview_controller.py # Adaptive questioning state machine
+│   ├── interview_session.py    # Active session lifecycle & evaluation storage
+│   ├── question_bank.py        # Curated technical & behavioral question catalog
+│   └── questions.json          # Standardized question database
+├── services/                   # Deep Learning & AI Inference Services
+│   ├── llm_provider.py         # Multi-provider LLM bridge (Ollama, Gemini, OpenRouter)
+│   ├── speech_to_text.py       # OpenAI Whisper on-device transcription
+│   └── live_feedback_analyzer.py # Real-time coaching signals
+├── scripts/                    # Core Generators & Developer Utilities
+│   ├── build_standard_questions.py   # Question bank compiler
+│   └── render_anatomical_visemes.py  # 2D viseme frame generator
 └── tests/                      # Automated validation suites
 ```
 
 ---
 
-## Installation
+## 👩‍💼 Zaira 2D Audio-Driven Lip-Sync Engine
 
-1. Clone the repository to your local machine.
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   # Windows:
-   venv\Scripts\activate
-   # macOS/Linux:
-   source venv/bin/activate
-   ```
-3. Install the required Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### System Dependencies
-To run transcription and visual processing, your system must have `ffmpeg` installed.
-- **Windows**: `winget install ffmpeg` or `choco install ffmpeg`
-- **macOS**: `brew install ffmpeg`
-- **Linux**: `sudo apt install ffmpeg`
-
----
-
-## Environment Setup
-
-TruthLens AI requires an LLM provider to extract structured events. 
-
-1. Copy `.env.example` to a new file named `.env`.
-2. Open `.env` and set `LLM_PROVIDER` to your preferred service (`openrouter`, `gemini`, `openai`, or `ollama`).
-3. Add your corresponding API key.
-
-*Note: Your `.env` file is ignored by Git. Never commit your API keys.*
-
----
-
-## Running the Application
-
-Once your virtual environment is active and your `.env` is configured, start the application:
-
-```bash
-streamlit run app.py
-```
-The application will launch in your default web browser at `http://localhost:8501`.
-
----
-
-## Demo Mode
-
-To instantly demonstrate the application without recording audio:
-1. Click **▶️ Load Demo Analysis** at the top right of the application.
-2. The system will safely clear any existing session state and populate Person A and Person B with a fictional everyday scenario.
-3. The demo injects locally generated, deterministic `.wav` speech assets.
-4. You can then click **Transcribe**, **Analyze Story**, and **Analyze Speech Signals** to watch the real pipeline process the demo data.
-
-*(Note: Demo Mode uses fictional sample data for demonstration purposes only).*
-
----
-
-## Optional Speech Signals
-
-If an audio recording is provided (either recorded live or via Demo Mode), you can click **Analyze Speech Signals**. The system uses `librosa` to extract:
-- Word Count & Duration
-- Speaking Rate (WPM)
-- Filler Words & Pause Count
-- Pitch (F0 Mean & Variance)
-- Energy (dB)
-
-## Optional Visual Signals
-
-If a video file is uploaded, you can click **Analyze Visual Signals**. The system uses `mediapipe` to track facial mesh data and extract:
-- Face Presence & Tracking Reliability
-- Blink Count
-- Head Movements
-
-*Note: Video assets are not included in Demo Mode to avoid unnecessary repository bloat. The system gracefully degrades and displays "No visual data available."*
-
----
-
-## PDF Report Export
-
-After both stories are analyzed and the comparison is complete, you can generate a **PDF Evidence & Consistency Report**. 
-- The report is built natively using `fpdf2`.
-- It preserves all extracted `source_text` to ensure strict traceability back to the original transcript.
-- It automatically pulls in Speech and Visual metrics if they were processed. 
-- It maintains objective, neutral language describing *information differences*, enforcing the application's strict rule against determining truth/deception.
+Zaira uses a client-side 2D viseme animation engine:
+- **Zero Hallucination / Distortions**: Preserves Zaira's photographic identity, lighting, and facial proportions from `zaira-avatar.png`.
+- **Anatomical Visemes**: 5 states (`zaira-viseme-0.png` to `zaira-viseme-4.png`) representing resting closed smile, soft consonants (5px jaw drop), active vowels (10px drop with dental arch and dark oral depth), open vowels (16px drop), and rounded vowels.
+- **Real-Time Audio Synchronization**: Web Audio Analyser reads acoustic energy and speech formant frequencies at 60 FPS, actively moving the mouth on syllables and returning to resting closed smile during pauses and when audio completes.
+- **Zero Paid Dependencies**: 100% free, runs client-side with Microsoft Edge-TTS delivering high-fidelity voice audio.

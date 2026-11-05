@@ -75,3 +75,16 @@ aiortc>=1.8.0
 # Cloud Transcription Fallback (app.py)
 groq>=0.9.0
 
+# ─────────────────────────────────────────────────────────────
+# Zaira AI — FastAPI Real-Time Backend & TTS Pipeline
+# ─────────────────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+edge-tts>=7.0.0
+websockets>=12.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+httpx>=0.27.0
+
+
