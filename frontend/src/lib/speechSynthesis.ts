@@ -11,17 +11,45 @@
 export function selectFemaleVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   if (!voices || voices.length === 0) return null;
 
+  // First priority: Modern Online/Natural/Neural voices which have human-like flow
+  const naturalVoices = voices.filter(
+    (v) =>
+      v.name.toLowerCase().includes("natural") ||
+      v.name.toLowerCase().includes("online") ||
+      v.name.toLowerCase().includes("neural")
+  );
+
+  // Look for British natural female voice (Libby, Sonia, Maisie)
+  const britishNatural = naturalVoices.filter(
+    (v) => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith("en-gb")
+  );
+  const topKeywords = ["ava", "maisie", "jenny", "libby", "sonia", "hazel", "serena"];
+
+  for (const kw of topKeywords) {
+    const match = britishNatural.find((v) => v.name && v.name.toLowerCase().includes(kw));
+    if (match) return match;
+  }
+  if (britishNatural.length > 0) return britishNatural[0];
+
+  // Any English natural/neural voice
+  for (const kw of topKeywords) {
+    const match = naturalVoices.find((v) => v.name && v.name.toLowerCase().includes(kw));
+    if (match) return match;
+  }
+  if (naturalVoices.length > 0) return naturalVoices[0];
+
+  // Standard voice fallback (prefer British English)
+  const britishVoices = voices.filter((v) => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith("en-gb"));
+  for (const kw of topKeywords) {
+    const match = britishVoices.find((v) => v.name && v.name.toLowerCase().includes(kw));
+    if (match) return match;
+  }
+  if (britishVoices.length > 0) return britishVoices[0];
+
   const englishVoices = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
   const pool = englishVoices.length > 0 ? englishVoices : voices;
 
-  const femaleKeywords = [
-    "female", "woman",
-    "samantha", "victoria", "karen", "zira", "moira", "fiona", "tessa",
-    "siri", "ava", "allison", "susan", "veena", "kate", "serena", "stephanie",
-    "jenny", "aria", "sonia", "libby", "natasha", "hazel"
-  ];
-
-  for (const kw of femaleKeywords) {
+  for (const kw of topKeywords) {
     const match = pool.find((v) => v.name && v.name.toLowerCase().includes(kw));
     if (match) return match;
   }
@@ -30,7 +58,6 @@ export function selectFemaleVoice(voices: SpeechSynthesisVoice[]): SpeechSynthes
   const defaultEnglish = englishVoices.find((v) => v.default) || englishVoices[0];
   if (defaultEnglish) return defaultEnglish;
 
-  // Fallback to default voice or first available
   return voices.find((v) => v.default) || voices[0] || null;
 }
 
@@ -135,8 +162,8 @@ export class QuestionSpeaker {
         utterance.voice = voice;
       }
       utterance.lang = voice?.lang || "en-US";
-      utterance.rate = 0.95; // Slightly measured, clear interviewer cadence
-      utterance.pitch = 1.02;
+      utterance.rate = 0.90; // Natural, relaxed conversational cadence
+      utterance.pitch = 1.0;
 
       utterance.onstart = () => {
         // Discard event if this utterance was already cancelled or superseded

@@ -63,6 +63,13 @@ class WSServerProcessing(BaseModel):
     type: str = "processing"
     stage: str
     progress: int
+    message: Optional[str] = None
+
+class WSServerEvalStreamChunk(BaseModel):
+    type: str = "eval_stream_chunk"
+    stage: str = "reasoning"
+    chunk: str
+    progress: Optional[int] = 75
 
 class WSServerAnswerResult(BaseModel):
     type: str = "answer_result"

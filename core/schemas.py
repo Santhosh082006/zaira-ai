@@ -62,6 +62,8 @@ class InterviewState(BaseModel):
     assessment_goals: List[str]
     technical_domain: Optional[str] = None
     custom_goal: Optional[str] = None
+    resume_text: Optional[str] = None
+    job_description: Optional[str] = None
     current_question_id: Optional[str] = None
     question_history: List[str] = []
     answer_history: List[str] = []

@@ -10,7 +10,19 @@ from pydantic import BaseModel
 import sys
 
 # Ensure the root project directory is in the path for module imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(ROOT_DIR)
+
+from dotenv import load_dotenv
+load_dotenv(os.path.join(ROOT_DIR, ".env"), override=True)
+
+# Set writable MPLCONFIGDIR to prevent font-cache hang on Windows
+mpl_dir = os.path.join(ROOT_DIR, ".cache", "matplotlib")
+os.makedirs(mpl_dir, exist_ok=True)
+os.environ["MPLCONFIGDIR"] = mpl_dir
+
+from services.media_utils import ensure_ffmpeg_in_path
+ensure_ffmpeg_in_path()
 
 from core.constants import VIDEO_DIR, AUDIO_DIR, INSUFFICIENT_DATA
 from processors.ingestion.video_demuxer import demux_video_to_audio
@@ -88,9 +100,45 @@ def _load_session_checkpoint(session_id: str) -> Optional[dict]:
 async def health_check():
     return {"status": "FastAPI Real Pipeline is running."}
 
+# Bounded worker queue to prevent concurrent CPU exhaustion during heavy Whisper/MediaPipe inference
+ANALYSIS_QUEUE: asyncio.Queue = asyncio.Queue()
+MAX_CONCURRENT_ANALYSES = int(os.getenv("MAX_CONCURRENT_ANALYSIS_WORKERS", "2"))
+_worker_tasks = []
+
+async def _analysis_worker():
+    while True:
+        try:
+            session_id, video_path = await ANALYSIS_QUEUE.get()
+            try:
+                await run_real_pipeline(session_id, video_path)
+            except Exception as e:
+                print(f"Error in analysis worker for session {session_id}: {e}")
+            finally:
+                ANALYSIS_QUEUE.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Unexpected worker queue error: {e}")
+
+@app.on_event("startup")
+async def start_analysis_workers():
+    for _ in range(MAX_CONCURRENT_ANALYSES):
+        t = asyncio.create_task(_analysis_worker())
+        _worker_tasks.append(t)
+
+@app.on_event("shutdown")
+async def stop_analysis_workers():
+    for t in _worker_tasks:
+        t.cancel()
+    if _worker_tasks:
+        await asyncio.gather(*_worker_tasks, return_exceptions=True)
+
 @app.websocket("/api/ws/status/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await manager.connect(websocket, session_id)
+    if session_id in analysis_sessions:
+        s = analysis_sessions[session_id]
+        await manager.send_status(session_id, s.get("message", "Processing..."), s.get("progress", 0))
     try:
         while True:
             await websocket.receive_text()
@@ -289,18 +337,28 @@ async def analyze_video(
     with open(video_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
+    queue_pos = ANALYSIS_QUEUE.qsize() + 1
     analysis_sessions[session_id] = {
         "session_id": session_id,
-        "status": "processing",
+        "status": "queued",
         "progress": 0,
-        "message": "Upload received. Queuing analysis pipeline...",
+        "message": f"Upload received. Queued for analysis (queue position: {queue_pos})...",
     }
     _save_session_checkpoint(session_id, analysis_sessions[session_id])
 
-    # Queue the heavy pipeline in the background!
-    background_tasks.add_task(run_real_pipeline, session_id, video_path)
+    # Ensure worker task is running (fallback for direct test harnesses)
+    if not _worker_tasks or all(t.done() for t in _worker_tasks):
+        t = asyncio.create_task(_analysis_worker())
+        _worker_tasks.append(t)
+
+    # Queue the heavy pipeline into the bounded concurrency queue
+    await ANALYSIS_QUEUE.put((session_id, video_path))
     
-    return {"message": "Analysis started asynchronously.", "session_id": session_id}
+    return {
+        "message": "Analysis queued asynchronously.",
+        "session_id": session_id,
+        "queue_position": queue_pos
+    }
 
 @app.get("/api/analysis/{session_id}")
 async def get_analysis_result(session_id: str):

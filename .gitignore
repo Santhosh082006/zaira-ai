@@ -74,3 +74,6 @@ test_speaking_*.png
 clean_open_mouth.png
 frontend/node_modules/
 frontend/.next/
+
+# ── TTS audio cache ─────────────────────────────────────────────────────────────
+.cache/

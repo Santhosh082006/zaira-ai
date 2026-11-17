@@ -15,10 +15,50 @@ from backend.schemas.interview_ws import (
     WSServerInterviewCompleted,
     WSServerError,
     WSServerState,
-    WSServerLiveFeedback
+    WSServerLiveFeedback,
+    WSServerEvalStreamChunk
 )
 from services.live_feedback_analyzer import analyze_live_transcript
 import time
+from typing import Set, Dict, Optional
+
+class InterviewWSManager:
+    def __init__(self):
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def register(self, session_id: str, ws: WebSocket):
+        if session_id not in self.active_connections:
+            self.active_connections[session_id] = set()
+        self.active_connections[session_id].add(ws)
+
+    def unregister(self, session_id: str, ws: WebSocket):
+        if session_id in self.active_connections:
+            self.active_connections[session_id].discard(ws)
+            if not self.active_connections[session_id]:
+                del self.active_connections[session_id]
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        self.loop = loop
+
+    def broadcast_sync(self, session_id: str, payload_json: str):
+        if session_id not in self.active_connections:
+            return
+        if not self.loop or self.loop.is_closed():
+            return
+        async def _send():
+            sockets = list(self.active_connections.get(session_id, []))
+            for ws in sockets:
+                try:
+                    await ws.send_text(payload_json)
+                except Exception:
+                    pass
+        try:
+            asyncio.run_coroutine_threadsafe(_send(), self.loop)
+        except Exception:
+            pass
+
+ws_manager = InterviewWSManager()
 
 ws_router = APIRouter(tags=["Interview WebSocket"])
 
@@ -26,36 +66,38 @@ ws_router = APIRouter(tags=["Interview WebSocket"])
 async def interview_websocket(websocket: WebSocket, session_id: str):
     # 1. Accept connection
     await websocket.accept()
+    ws_manager.set_loop(asyncio.get_running_loop())
+    ws_manager.register(session_id, websocket)
 
     # 2. Validate session
-    state = session_service.get_session(session_id)
-    if not state:
-        await websocket.send_text(WSServerError(
-            code="INVALID_SESSION",
-            message="Interview session not found."
-        ).model_dump_json())
-        await websocket.close(code=1008)
-        return
-
-    # 3. Send connected event
-    await websocket.send_text(WSServerConnected(session_id=session_id).model_dump_json())
-
-    # 4. Provide current state / question
-    if state.completion_status == "completed":
-        await websocket.send_text(WSServerInterviewCompleted(
-            reason="Session was already completed upon connection."
-        ).model_dump_json())
-    else:
-        if state.current_question_id:
-            # Look up question safely
-            q_domain = session_service.qb.get_question_by_id(state.current_question_id)
-            if q_domain:
-                q_model = _map_domain_question(q_domain)
-                await websocket.send_text(WSServerQuestionReady(question=q_model.model_dump()).model_dump_json())
-
-    # 5. Receive messages
-    last_feedback_time = 0.0
     try:
+        state = session_service.get_session(session_id)
+        if not state:
+            await websocket.send_text(WSServerError(
+                code="INVALID_SESSION",
+                message="Interview session not found."
+            ).model_dump_json())
+            await websocket.close(code=1008)
+            return
+
+        # 3. Send connected event
+        await websocket.send_text(WSServerConnected(session_id=session_id).model_dump_json())
+
+        # 4. Provide current state / question
+        if state.completion_status == "completed":
+            await websocket.send_text(WSServerInterviewCompleted(
+                reason="Session was already completed upon connection."
+            ).model_dump_json())
+        else:
+            if state.current_question_id:
+                # Look up question safely
+                q_domain = session_service.qb.get_question_by_id(state.current_question_id)
+                if q_domain:
+                    q_model = _map_domain_question(q_domain)
+                    await websocket.send_text(WSServerQuestionReady(question=q_model.model_dump()).model_dump_json())
+
+        # 5. Receive messages
+        last_feedback_time = 0.0
         while True:
             data_str = await websocket.receive_text()
             try:
@@ -109,6 +151,10 @@ async def interview_websocket(websocket: WebSocket, session_id: str):
                     is_provisional=True
                 ).model_dump_json())
 
+            elif msg_type == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+                continue
+
             elif msg_type == "get_state":
                 try:
                     _ = WSClientGetState(**msg_dict)
@@ -155,11 +201,20 @@ async def interview_websocket(websocket: WebSocket, session_id: str):
                     continue
                 
                 # Emit processing events deterministically
-                await websocket.send_text(WSServerProcessing(stage="received", progress=10).model_dump_json())
-                await asyncio.sleep(0.1) # Simulate async processing
-                await websocket.send_text(WSServerProcessing(stage="evaluating", progress=50).model_dump_json())
-                await asyncio.sleep(0.1)
+                await websocket.send_text(WSServerProcessing(stage="received", progress=10, message="Candidate answer received. Initiating neural evaluation...").model_dump_json())
                 
+                def on_stage_cb(stage: str, message: str, progress: int):
+                    ws_manager.broadcast_sync(
+                        session_id,
+                        WSServerProcessing(stage=stage, progress=progress, message=message).model_dump_json()
+                    )
+
+                def on_chunk_cb(chunk: str):
+                    ws_manager.broadcast_sync(
+                        session_id,
+                        WSServerEvalStreamChunk(stage="reasoning", chunk=chunk, progress=75).model_dump_json()
+                    )
+
                 try:
                     # Invoke domain service (synchronous call - explicitly off the async event loop)
                     upd_state, next_q, record, decision = await asyncio.to_thread(
@@ -172,10 +227,12 @@ async def interview_websocket(websocket: WebSocket, session_id: str):
                         visual_metrics=ans_req.visual_metrics,
                         language_metrics=ans_req.language_metrics,
                         duration=ans_req.duration,
-                        media_reference=ans_req.media_reference or ""
+                        media_reference=ans_req.media_reference or "",
+                        on_stage=on_stage_cb,
+                        on_chunk=on_chunk_cb
                     )
                     
-                    await websocket.send_text(WSServerProcessing(stage="selecting_next_question", progress=90).model_dump_json())
+                    await websocket.send_text(WSServerProcessing(stage="selecting_next_question", progress=90, message="Compiling scorecard and selecting adaptive next steps...").model_dump_json())
                     
                     if upd_state.completion_status == "completed":
                         await websocket.send_text(WSServerInterviewCompleted(reason=decision.decision_type).model_dump_json())
@@ -215,3 +272,5 @@ async def interview_websocket(websocket: WebSocket, session_id: str):
             await websocket.close(code=1011)
         except:
             pass
+    finally:
+        ws_manager.unregister(session_id, websocket)

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { UploadCloud, CheckCircle2, SplitSquareHorizontal, RotateCcw } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { UploadCloud, CheckCircle2, RotateCcw } from "lucide-react";
+import { motion, AnimatePresence } from "../lib/motion";
 import axios from "axios";
+import { getApiBase, getWsBase } from "../lib/apiConfig";
 import CategoryCards from "./CategoryCards";
 import TelemetrySection from "./TelemetrySection";
 
@@ -17,42 +18,87 @@ export default function CompareDashboard() {
   const [statusA, setStatusA] = useState("");
   const [progressA, setProgressA] = useState(0);
   const [completeA, setCompleteA] = useState(false);
+  const [resultsA, setResultsA] = useState<any>(null);
 
   // State for B
   const [statusB, setStatusB] = useState("");
   const [progressB, setProgressB] = useState(0);
   const [completeB, setCompleteB] = useState(false);
+  const [resultsB, setResultsB] = useState<any>(null);
 
   const startComparison = async () => {
     if (!fileA || !fileB) return;
     setIsUploading(true);
     setCompleteA(false);
     setCompleteB(false);
+    setResultsA(null);
+    setResultsB(null);
     setProgressA(0);
     setProgressB(0);
     setStatusA("Uploading recording A...");
     setStatusB("Uploading recording B...");
 
-    const uploadAndListen = async (file: File, setStatus: any, setProgress: any, setComplete: any) => {
+    const uploadAndListen = async (
+      file: File,
+      setStatus: (msg: string) => void,
+      setProgress: (p: number) => void,
+      setComplete: (c: boolean) => void,
+      setResults: (r: any) => void
+    ) => {
       const formData = new FormData();
       formData.append("file", file);
 
       try {
-        const res = await axios.post("http://localhost:8000/api/analyze", formData, {
+        const res = await axios.post(`${getApiBase()}/api/analyze`, formData, {
           onUploadProgress: (p) => {
             if (p.total) setProgress(Math.floor(((p.loaded * 100) / p.total) * 0.1));
           },
         });
         const sid = res.data.session_id;
 
-        const ws = new WebSocket(`ws://localhost:8000/api/ws/status/${sid}`);
-        ws.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          setStatus(data.status);
-          setProgress(data.progress);
-          if (data.progress === 100) {
-            setComplete(true);
-            ws.close();
+        const ws = new WebSocket(`${getWsBase()}/api/ws/status/${sid}`);
+        ws.onmessage = async (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            setStatus(data.status);
+            setProgress(data.progress);
+            if (data.progress === 100) {
+              try {
+                const detailRes = await axios.get(`${getApiBase()}/api/analysis/${sid}`);
+                setResults(detailRes.data);
+              } catch (fetchErr) {
+                console.warn("Failed to fetch detailed results:", fetchErr);
+              }
+              setComplete(true);
+              ws.close();
+            }
+          } catch (parseErr) {
+            console.warn("Error parsing WS message:", parseErr);
+          }
+        };
+
+        ws.onerror = async () => {
+          // Fallback polling if WebSocket is unavailable
+          for (let i = 0; i < 45; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            try {
+              const detailRes = await axios.get(`${getApiBase()}/api/analysis/${sid}`);
+              if (detailRes.data.status === "completed") {
+                setResults(detailRes.data);
+                setProgress(100);
+                setStatus("Analysis Complete");
+                setComplete(true);
+                break;
+              } else if (detailRes.data.status === "failed") {
+                setStatus(detailRes.data.error || "Analysis failed.");
+                break;
+              } else {
+                setProgress(detailRes.data.progress || 50);
+                setStatus(detailRes.data.message || "Processing...");
+              }
+            } catch {
+              // Retry on next cycle
+            }
           }
         };
       } catch {
@@ -60,9 +106,9 @@ export default function CompareDashboard() {
       }
     };
 
-    // Run both simultaneously
-    uploadAndListen(fileA, setStatusA, setProgressA, setCompleteA);
-    uploadAndListen(fileB, setStatusB, setProgressB, setCompleteB);
+    // Run both pipelines
+    uploadAndListen(fileA, setStatusA, setProgressA, setCompleteA, setResultsA);
+    uploadAndListen(fileB, setStatusB, setProgressB, setCompleteB, setResultsB);
   };
 
   const showResults = completeA && completeB;
@@ -72,7 +118,7 @@ export default function CompareDashboard() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="w-full flex flex-col gap-8 max-w-5xl mx-auto"
+      className="w-full flex flex-col gap-8 max-w-6xl mx-auto"
     >
       <header className="border-b border-white/[0.07] pb-5">
         <div className="flex items-center gap-2 mb-1.5">
@@ -236,32 +282,66 @@ export default function CompareDashboard() {
               <div className="flex flex-col gap-6 md:pr-4">
                 <div className="text-center">
                   <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400/90 font-semibold">Candidate 01</span>
-                  <h3 className="text-xl font-bold text-white tracking-tight mt-0.5">Person A</h3>
+                  <h3 className="text-xl font-bold text-white tracking-tight mt-0.5">{fileA?.name || "Person A"}</h3>
                 </div>
                 <div className="p-6 rounded-2xl border border-white/[0.07] bg-zinc-950/70 backdrop-blur-xl flex flex-col items-center justify-center text-center">
                   <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest mb-1">Overall Performance</span>
-                  <div className="text-5xl font-mono font-bold text-white mb-2">85</div>
+                  <div className="text-5xl font-mono font-bold text-white mb-2">
+                    {resultsA?.overall_score ?? 85}
+                  </div>
                   <span className="text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-3 py-0.5 rounded-full text-xs font-medium">
-                    Exemplary Delivery
+                    {resultsA?.assessment_text || "Exemplary Delivery"}
                   </span>
                 </div>
-                <CategoryCards />
+
+                {resultsA?.strengths && resultsA.strengths.length > 0 && (
+                  <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-950/20 text-xs text-emerald-200/90 space-y-1.5">
+                    <div className="font-semibold text-emerald-400 text-[11px] font-mono uppercase tracking-wider">Observed Strengths</div>
+                    {resultsA.strengths.map((s: string, idx: number) => (
+                      <div key={idx} className="leading-relaxed">• {s}</div>
+                    ))}
+                  </div>
+                )}
+
+                <CategoryCards categories={resultsA?.categories} />
+                <TelemetrySection
+                  telemetry={resultsA?.telemetry}
+                  transcript={resultsA?.transcript}
+                  modalityStatus={resultsA?.modality_status}
+                />
               </div>
 
               {/* Person B Results */}
               <div className="flex flex-col gap-6 md:pl-4">
                 <div className="text-center">
                   <span className="text-[10px] font-mono uppercase tracking-widest text-teal-400/90 font-semibold">Candidate 02</span>
-                  <h3 className="text-xl font-bold text-white tracking-tight mt-0.5">Person B</h3>
+                  <h3 className="text-xl font-bold text-white tracking-tight mt-0.5">{fileB?.name || "Person B"}</h3>
                 </div>
                 <div className="p-6 rounded-2xl border border-white/[0.07] bg-zinc-950/70 backdrop-blur-xl flex flex-col items-center justify-center text-center">
                   <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest mb-1">Overall Performance</span>
-                  <div className="text-5xl font-mono font-bold text-white mb-2">72</div>
+                  <div className="text-5xl font-mono font-bold text-white mb-2">
+                    {resultsB?.overall_score ?? 72}
+                  </div>
                   <span className="text-amber-400 bg-amber-500/15 border border-amber-500/30 px-3 py-0.5 rounded-full text-xs font-medium">
-                    Competent Delivery
+                    {resultsB?.assessment_text || "Competent Delivery"}
                   </span>
                 </div>
-                <CategoryCards />
+
+                {resultsB?.strengths && resultsB.strengths.length > 0 && (
+                  <div className="p-4 rounded-xl border border-teal-500/20 bg-teal-950/20 text-xs text-teal-200/90 space-y-1.5">
+                    <div className="font-semibold text-teal-400 text-[11px] font-mono uppercase tracking-wider">Observed Strengths</div>
+                    {resultsB.strengths.map((s: string, idx: number) => (
+                      <div key={idx} className="leading-relaxed">• {s}</div>
+                    ))}
+                  </div>
+                )}
+
+                <CategoryCards categories={resultsB?.categories} />
+                <TelemetrySection
+                  telemetry={resultsB?.telemetry}
+                  transcript={resultsB?.transcript}
+                  modalityStatus={resultsB?.modality_status}
+                />
               </div>
             </div>
 
@@ -271,6 +351,8 @@ export default function CompareDashboard() {
                   setIsUploading(false);
                   setFileA(null);
                   setFileB(null);
+                  setResultsA(null);
+                  setResultsB(null);
                 }}
                 className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium text-xs md:text-sm text-white/80 border border-white/10 hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.08] transition-all"
               >

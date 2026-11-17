@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Video, StopCircle, RefreshCcw, CheckCircle2 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion } from "../lib/motion";
 import axios from "axios";
 
 export default function LiveCamera({ onAnalysisStart }: { onAnalysisStart: (sessionId: string) => void }) {

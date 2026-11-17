@@ -1,5 +1,5 @@
 import uuid
-from typing import Tuple, Dict, Any, List, Optional
+from typing import Tuple, Dict, Any, List, Optional, Callable
 
 from core.schemas import InterviewState, Question, AnswerRecord
 from core.competency_map import CompetencyMap
@@ -23,7 +23,8 @@ class AnswerEvaluator:
         visual_metrics: Optional[Dict[str, float]] = None,
         language_metrics: Optional[Dict[str, float]] = None,
         duration: float = 0.0,
-        media_reference: str = ""
+        media_reference: str = "",
+        on_chunk: Optional[Callable[[str], None]] = None
     ) -> Tuple[InterviewState, AnswerRecord]:
         
         speech_metrics = speech_metrics or {}
@@ -50,7 +51,8 @@ class AnswerEvaluator:
                 interview_type=state.interview_type,
                 level=state.interview_level,
                 assessment_goals=state.assessment_goals,
-                target_competencies=target_comps
+                target_competencies=target_comps,
+                on_chunk=on_chunk
             )
             
         # 2. Calculate Bounded Overall Quality

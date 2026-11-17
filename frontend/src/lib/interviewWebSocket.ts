@@ -1,9 +1,11 @@
 import { Question } from "./interviewApi";
+import { getWsBase } from "./apiConfig";
 
 export type WebSocketServerEventType = 
   | "connected"
   | "question_ready"
   | "processing"
+  | "eval_stream_chunk"
   | "answer_result"
   | "interview_completed"
   | "error"
@@ -36,7 +38,16 @@ export interface WSServerProcessingEvent {
   type: "processing";
   stage: string;
   progress: number;
-  payload?: { stage?: string; progress?: number };
+  message?: string;
+  payload?: { stage?: string; progress?: number; message?: string };
+}
+
+export interface WSServerEvalStreamChunkEvent {
+  type: "eval_stream_chunk";
+  stage: string;
+  chunk: string;
+  progress?: number;
+  payload?: { stage?: string; chunk?: string; progress?: number };
 }
 
 export interface WSServerAnswerResultEvent {
@@ -78,15 +89,21 @@ export interface WSServerStateEvent {
   payload?: Record<string, unknown>;
 }
 
+export interface WSServerPongEvent {
+  type: "pong";
+}
+
 export type WebSocketServerEvent =
   | WSServerConnectedEvent
   | WSServerQuestionReadyEvent
   | WSServerProcessingEvent
+  | WSServerEvalStreamChunkEvent
   | WSServerAnswerResultEvent
   | WSServerInterviewCompletedEvent
   | WSServerErrorEvent
   | WSServerStateEvent
-  | WSServerLiveFeedbackEvent;
+  | WSServerLiveFeedbackEvent
+  | WSServerPongEvent;
 
 export interface WSClientSubmitAnswer {
   type: "submit_answer";
@@ -100,7 +117,7 @@ export interface WSClientSubmitAnswer {
   content_analysis?: Record<string, unknown>;
 }
 
-export type WebSocketClientEventType = "submit_answer" | "get_state";
+export type WebSocketClientEventType = "submit_answer" | "get_state" | "ping";
 
 export interface WebSocketClientEvent {
   type: WebSocketClientEventType;
@@ -113,17 +130,26 @@ export class InterviewWebSocketClient {
   private onMessage: (event: WebSocketServerEvent) => void;
   private onError: (error: string) => void;
   private onClose: () => void;
+  private onOpen?: () => void;
+
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private intentionalClose = false;
 
   constructor(
     sessionId: string, 
     onMessage: (event: WebSocketServerEvent) => void,
     onError: (error: string) => void,
-    onClose: () => void
+    onClose: () => void,
+    onOpen?: () => void
   ) {
     this.sessionId = sessionId;
     this.onMessage = onMessage;
     this.onError = onError;
     this.onClose = onClose;
+    this.onOpen = onOpen;
   }
 
   public connect() {
@@ -131,9 +157,17 @@ export class InterviewWebSocketClient {
       return; // Prevent duplicate connections
     }
 
-    const host = typeof window !== "undefined" ? window.location.hostname || "127.0.0.1" : "127.0.0.1";
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || `ws://${host}:8000`;
+    this.intentionalClose = false;
+    const wsUrl = getWsBase();
     this.ws = new WebSocket(`${wsUrl}/ws/interview/${this.sessionId}`);
+
+    this.ws.onopen = () => {
+      this.reconnectAttempts = 0;
+      this.startHeartbeat();
+      if (this.onOpen) {
+        this.onOpen();
+      }
+    };
 
     this.ws.onmessage = (event) => {
       let parsed: WebSocketServerEvent;
@@ -150,6 +184,12 @@ export class InterviewWebSocketClient {
           this.onError("Malformed server message: Missing event type");
           return;
         }
+
+        // Handle pong heartbeat response
+        if (parsed.type === "pong") {
+          return;
+        }
+
         this.onMessage(parsed);
       } catch (err) {
         console.error("Error in onMessage handler", err);
@@ -162,8 +202,39 @@ export class InterviewWebSocketClient {
     };
 
     this.ws.onclose = () => {
+      this.stopHeartbeat();
       this.onClose();
+
+      // Attempt automatic reconnection if not intentionally disconnected
+      if (!this.intentionalClose && this.reconnectAttempts < this.maxReconnectAttempts) {
+        const backoffDelay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+        this.reconnectAttempts++;
+        console.warn(`WebSocket disconnected. Reconnecting in ${backoffDelay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+        this.reconnectTimer = setTimeout(() => {
+          this.connect();
+        }, backoffDelay);
+      }
     };
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: "ping" }));
+        } catch {
+          // Send failure will trigger onerror/onclose
+        }
+      }
+    }, 30000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   public sendAnswer(answer: Omit<WSClientSubmitAnswer, "type">) {
@@ -192,6 +263,12 @@ export class InterviewWebSocketClient {
   }
 
   public disconnect() {
+    this.intentionalClose = true;
+    this.stopHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;

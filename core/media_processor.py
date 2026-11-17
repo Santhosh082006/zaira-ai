@@ -9,6 +9,7 @@ from core.constants import AUDIO_DIR
 from services.speech_to_text import load_whisper_model, transcribe_audio
 from services.speech_features import extract_speech_features
 from services.visual_features import extract_visual_features
+from services.media_utils import get_ffmpeg_binary
 from processors.ingestion.video_demuxer import demux_video_to_audio
 
 class MediaProcessor:
@@ -37,8 +38,9 @@ class MediaProcessor:
         out_fd, out_path = tempfile.mkstemp(suffix=".wav", dir=AUDIO_DIR)
         os.close(out_fd)
         
+        ffmpeg_exe = get_ffmpeg_binary()
         cmd = [
-            "ffmpeg", "-y", "-i", audio_path,
+            ffmpeg_exe, "-y", "-i", audio_path,
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
             out_path
         ]

@@ -34,7 +34,7 @@ Environment variables (see .env.example for full reference)
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Optional, Callable
 
 
 # ── Public interface ───────────────────────────────────────────────────────────
@@ -44,7 +44,11 @@ def get_active_provider() -> str:
     return os.getenv("LLM_PROVIDER", "openrouter").strip().lower()
 
 
-def call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
+def call_llm(
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    on_chunk: Optional[Callable[[str], None]] = None
+) -> str:
     """
     Send a prompt to the configured LLM and return the text response.
 
@@ -54,6 +58,8 @@ def call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
         The user-facing prompt (e.g., the extraction request with transcript).
     system_prompt : str | None
         Optional system-level instructions for the model.
+    on_chunk : Callable[[str], None] | None
+        Optional callback invoked with each generated text token chunk.
 
     Returns
     -------
@@ -70,69 +76,9 @@ def call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
     RuntimeError
         If the LLM call fails for any other reason.
     """
-    import os
     if os.environ.get("TEST_MOCK_LLM") == "1":
-        if (system_prompt and "interview question" in system_prompt.lower()) or "INTERVIEW CONFIGURATION" in prompt:
-            import json
-            import re
-            domain = None
-            if "Technical Domain: Java" in prompt:
-                domain = "Java"
-                q_text = "How does the Java Virtual Machine manage memory allocation between the Heap and Stack, and how does Garbage Collection affect application performance?"
-                topic = "jvm_memory_and_gc"
-            elif "Technical Domain: DSA" in prompt:
-                domain = "DSA"
-                q_text = "How would you implement an efficient algorithm to detect a cycle in a directed graph, and what is its time and space complexity?"
-                topic = "graph_algorithms"
-            elif "Technical Domain: DBMS" in prompt:
-                domain = "DBMS"
-                q_text = "Can you explain how database indexing with B+ trees works and how transaction isolation levels mitigate concurrency anomalies?"
-                topic = "indexing_and_transactions"
-            elif "Technical Domain: Web Development" in prompt:
-                domain = "Web Development"
-                q_text = "How does the browser event loop handle microtasks versus macrotasks when processing asynchronous operations?"
-                topic = "event_loop_and_async"
-            elif "Technical Domain: AI/ML" in prompt:
-                domain = "AI/ML"
-                q_text = "Can you explain the difference between L1 and L2 regularization and how they prevent overfitting in deep neural networks?"
-                topic = "regularization_and_overfitting"
-            elif "Controller Action: clarification" in prompt or "Controller Action: follow_up" in prompt:
-                m = re.search(r'Candidate\'s Latest Answer Transcript:\s*"([^"]+)"', prompt)
-                snip = m.group(1).strip() if m else "your previous point"
-                if len(snip) > 30:
-                    snip = snip[:30] + "..."
-                q_text = f"You mentioned '{snip}'. Could you explain the specific steps and reasoning behind that decision?"
-                topic = "clarification"
-            elif "Custom Goal / Context:" in prompt and "None" not in prompt.split("Custom Goal / Context:")[1].split("\n")[0]:
-                custom_txt = prompt.split("Custom Goal / Context:")[1].split("\n")[0].strip()
-                q_text = f"Given your focus on {custom_txt}, how would you approach architecting this solution to ensure scalability?"
-                topic = "custom_scenario"
-            else:
-                q_text = "Tell me about a challenging technical problem you solved recently and the trade-offs you considered."
-                topic = "problem_solving"
-
-            return json.dumps({
-                "question_text": q_text,
-                "topic": topic,
-                "question_type": "technical" if domain else "behavioral",
-                "competencies": ["tech_technical_explanation", "think_problem_solving"],
-                "expected_answer_characteristics": ["clarity", "depth", "concrete examples"],
-                "follow_up_tags": ["architecture", "trade_offs"],
-                "difficulty": 0.6,
-                "technical_domain": domain
-            })
-
-        return """
-        {
-            "evaluation_status": "success",
-            "relevance": 0.9, "clarity": 0.9, "structure": 0.9,
-            "evidence_quality": 0.9, "completeness": 0.9,
-            "strengths": ["Excellent response"], "areas_to_improve": [],
-            "recommendations": ["Structure complex answers with STAR methodology."],
-            "evidence_excerpts": [], "evaluation_limitations": [],
-            "competency_evidence": [{"competency_id": "think_problem_solving", "evidence_type": "direct", "excerpt": "mocked transcript", "reasoning": "Valid"}]
-        }
-        """
+        from tests.mock_llm import mock_call_llm
+        return mock_call_llm(prompt, system_prompt, on_chunk=on_chunk)
 
     provider = get_active_provider()
 
@@ -149,12 +95,16 @@ def call_llm(prompt: str, system_prompt: Optional[str] = None) -> str:
             "Valid options are: openrouter, gemini, openai, ollama."
         )
 
-    return dispatch[provider](prompt, system_prompt)
+    return dispatch[provider](prompt, system_prompt, on_chunk=on_chunk)
 
 
 # ── Provider implementations ───────────────────────────────────────────────────
 
-def _call_openrouter(prompt: str, system_prompt: Optional[str]) -> str:
+def _call_openrouter(
+    prompt: str,
+    system_prompt: Optional[str],
+    on_chunk: Optional[Callable[[str], None]] = None
+) -> str:
     """
     Call any model through OpenRouter (https://openrouter.ai).
 
@@ -210,13 +160,29 @@ def _call_openrouter(prompt: str, system_prompt: Optional[str]) -> str:
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=max_tokens,
-            )
-            return response.choices[0].message.content
+            if on_chunk:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                    stream=True,
+                )
+                chunks = []
+                for chunk in response:
+                    delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else ""
+                    if delta:
+                        chunks.append(delta)
+                        on_chunk(delta)
+                return "".join(chunks)
+            else:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content
         except Exception as exc:
             err_str = str(exc)
             # 1. Token allocation adjustment (adaptive retry)
@@ -249,7 +215,11 @@ def _call_openrouter(prompt: str, system_prompt: Optional[str]) -> str:
             raise RuntimeError(f"OpenRouter API call failed: {exc}") from exc
 
 
-def _call_gemini(prompt: str, system_prompt: Optional[str]) -> str:
+def _call_gemini(
+    prompt: str,
+    system_prompt: Optional[str],
+    on_chunk: Optional[Callable[[str], None]] = None
+) -> str:
     """Call the Google Gemini API."""
     try:
         import google.generativeai as genai
@@ -285,13 +255,27 @@ def _call_gemini(prompt: str, system_prompt: Optional[str]) -> str:
             model_name=model_name,
             generation_config=gen_config,
         )
-        response = model.generate_content(full_prompt)
-        return response.text
+        if on_chunk:
+            response = model.generate_content(full_prompt, stream=True)
+            chunks = []
+            for chunk in response:
+                t = chunk.text or ""
+                if t:
+                    chunks.append(t)
+                    on_chunk(t)
+            return "".join(chunks)
+        else:
+            response = model.generate_content(full_prompt)
+            return response.text
     except Exception as exc:
         raise RuntimeError(f"Gemini API call failed: {exc}") from exc
 
 
-def _call_openai(prompt: str, system_prompt: Optional[str]) -> str:
+def _call_openai(
+    prompt: str,
+    system_prompt: Optional[str],
+    on_chunk: Optional[Callable[[str], None]] = None
+) -> str:
     """Call the OpenAI Chat Completions API."""
     try:
         from openai import OpenAI
@@ -322,18 +306,38 @@ def _call_openai(prompt: str, system_prompt: Optional[str]) -> str:
     messages.append({"role": "user", "content": prompt})
 
     try:
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            temperature=0.0,   # deterministic — no creative additions
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content
+        if on_chunk:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            chunks = []
+            for chunk in response:
+                delta = chunk.choices[0].delta.content if (chunk.choices and chunk.choices[0].delta) else ""
+                if delta:
+                    chunks.append(delta)
+                    on_chunk(delta)
+            return "".join(chunks)
+        else:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=0.0,   # deterministic — no creative additions
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content
     except Exception as exc:
         raise RuntimeError(f"OpenAI API call failed: {exc}") from exc
 
 
-def _call_ollama(prompt: str, system_prompt: Optional[str]) -> str:
+def _call_ollama(
+    prompt: str,
+    system_prompt: Optional[str],
+    on_chunk: Optional[Callable[[str], None]] = None
+) -> str:
     """
     Call a locally running Ollama model via its HTTP API.
 
@@ -369,7 +373,7 @@ def _call_ollama(prompt: str, system_prompt: Optional[str]) -> str:
     payload: dict = {
         "model": model_name,
         "prompt": prompt,
-        "stream": False,
+        "stream": bool(on_chunk),
         "options": {
             "temperature": 0.0,
             "num_predict": max_tokens,
@@ -387,19 +391,45 @@ def _call_ollama(prompt: str, system_prompt: Optional[str]) -> str:
         payload["format"] = "json"
 
     try:
-        response = requests.post(
-            f"{base_url}/api/generate",
-            json=payload,
-            timeout=timeout,
-        )
-        if response.status_code == 404:
-            raise RuntimeError(
-                f"Ollama model '{model_name}' not found at {base_url} (HTTP 404). "
-                f"Ensure the model is pulled by running 'ollama pull {model_name}'."
+        if on_chunk:
+            response = requests.post(
+                f"{base_url}/api/generate",
+                json=payload,
+                timeout=timeout,
+                stream=True,
             )
-        response.raise_for_status()
-        resp_json = response.json()
-        return resp_json.get("response", "")
+            if response.status_code == 404:
+                raise RuntimeError(
+                    f"Ollama model '{model_name}' not found at {base_url} (HTTP 404). "
+                    f"Ensure the model is pulled by running 'ollama pull {model_name}'."
+                )
+            response.raise_for_status()
+            chunks = []
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line.decode("utf-8"))
+                        tok = data.get("response", "")
+                        if tok:
+                            chunks.append(tok)
+                            on_chunk(tok)
+                    except Exception:
+                        pass
+            return "".join(chunks)
+        else:
+            response = requests.post(
+                f"{base_url}/api/generate",
+                json=payload,
+                timeout=timeout,
+            )
+            if response.status_code == 404:
+                raise RuntimeError(
+                    f"Ollama model '{model_name}' not found at {base_url} (HTTP 404). "
+                    f"Ensure the model is pulled by running 'ollama pull {model_name}'."
+                )
+            response.raise_for_status()
+            resp_json = response.json()
+            return resp_json.get("response", "")
     except requests.exceptions.ConnectionError as exc:
         raise RuntimeError(
             f"Ollama connection failed: Could not connect to Ollama at {base_url} (port 11434). "

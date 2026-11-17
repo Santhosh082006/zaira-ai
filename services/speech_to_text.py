@@ -1,50 +1,40 @@
 """
 services/speech_to_text.py
 ─────────────────────────────────────────────────────────────────────────────
-TruthLens AI — Stage 2: Whisper-based speech-to-text service.
+TruthLens AI — High-Performance Speech-to-Text Service.
 
 Responsibilities:
-  • Load (and cache) a local OpenAI Whisper model.
-  • Accept a path to a WAV file and return the transcribed text.
-
-Design notes:
-  • Model loading is intentionally separated from transcription so that
-    Streamlit's @st.cache_resource decorator can keep the model in memory
-    between reruns without reloading it from disk every time.
-  • No API keys are used; everything runs locally.
+  • Load (and cache) a local Speech-to-Text Whisper model.
+  • Prioritizes faster-whisper (CTranslate2, 3-4x faster on CPU, INT8 quantization).
+  • Falls back gracefully to standard OpenAI Whisper.
+  • Accept a path to an audio file (WAV/WebM/MP3) and return transcribed text.
 """
 
 from __future__ import annotations
-
 import os
+from typing import Any, Union
 
-
-# ── Constants ──────────────────────────────────────────────────────────────────
-
-# "base" runs well on a student laptop (CPU-only, ~140 MB).
-# Change to "small" (~460 MB) for slightly better accuracy if RAM allows.
 DEFAULT_MODEL_SIZE: str = "base"
 
 
 # ── Model loader ───────────────────────────────────────────────────────────────
 
-def load_whisper_model(model_size: str = DEFAULT_MODEL_SIZE) -> whisper.Whisper:
+def load_whisper_model(model_size: str = DEFAULT_MODEL_SIZE) -> Any:
     """
-    Load a Whisper model from disk (or download it on first run).
-
-    Parameters
-    ----------
-    model_size : str
-        Whisper model variant. Recommended options for a laptop:
-        - "tiny"  (~39 MB)  – fastest, lowest accuracy
-        - "base"  (~74 MB)  – good balance of speed and accuracy  ← default
-        - "small" (~244 MB) – better accuracy, slower on CPU
-
-    Returns
-    -------
-    whisper.Whisper
-        The loaded Whisper model instance.
+    Load a speech-to-text model.
+    Prioritizes faster-whisper (3-4x faster on CPU with INT8 quantization)
+    and falls back to standard openai-whisper if unavailable.
     """
+    # 1. Attempt faster-whisper
+    try:
+        from faster_whisper import WhisperModel
+        # int8 compute type provides near-lossless transcription at high CPU throughput
+        model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        return {"engine": "faster_whisper", "model": model}
+    except Exception:
+        pass
+
+    # 2. Fall back to standard openai-whisper
     try:
         import whisper
     except OSError as e:
@@ -54,8 +44,9 @@ def load_whisper_model(model_size: str = DEFAULT_MODEL_SIZE) -> whisper.Whisper:
                 "Please type your transcript manually, or disable Smart App Control to use local transcription."
             ) from e
         raise e
-        
-    return whisper.load_model(model_size)
+
+    model = whisper.load_model(model_size)
+    return {"engine": "openai_whisper", "model": model}
 
 
 # Alias for backward compatibility
@@ -64,39 +55,39 @@ get_whisper_model = load_whisper_model
 
 # ── Transcription ──────────────────────────────────────────────────────────────
 
-def transcribe_audio(model: whisper.Whisper, audio_path: str) -> str:
+def transcribe_audio(model_obj: Any, audio_path: str) -> str:
     """
-    Transcribe an audio file using the provided Whisper model.
-
-    Parameters
-    ----------
-    model : whisper.Whisper
-        A loaded Whisper model (returned by load_whisper_model).
-    audio_path : str
-        Absolute or relative path to the audio file (WAV, MP3, etc.).
-
-    Returns
-    -------
-    str
-        The transcribed text, stripped of leading/trailing whitespace.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the audio file does not exist at the given path.
-    RuntimeError
-        If Whisper fails to process the audio.
+    Transcribe an audio file using either faster-whisper or openai-whisper.
+    Accepts either the dictionary wrapper or a direct model instance.
     """
     if not os.path.exists(audio_path):
         raise FileNotFoundError(
             f"Audio file not found: '{audio_path}'. "
-            "Please record your story before transcribing."
+            "Please record your response before transcribing."
         )
 
+    # Unwrap if wrapped
+    engine = None
+    model = model_obj
+    if isinstance(model_obj, dict) and "engine" in model_obj:
+        engine = model_obj["engine"]
+        model = model_obj["model"]
+    elif hasattr(model_obj, "transcribe") and "WhisperModel" in type(model_obj).__name__:
+        engine = "faster_whisper"
+    else:
+        engine = "openai_whisper"
+
     try:
-        result = model.transcribe(audio_path, fp16=False)
-        return result["text"].strip()
+        if engine == "faster_whisper":
+            segments, info = model.transcribe(audio_path, beam_size=5)
+            transcript_parts = [segment.text for segment in segments]
+            return " ".join(transcript_parts).strip()
+        else:
+            result = model.transcribe(audio_path, fp16=False)
+            if isinstance(result, dict):
+                return result.get("text", "").strip()
+            return str(result).strip()
     except Exception as exc:
         raise RuntimeError(
-            f"Whisper failed to transcribe '{audio_path}': {exc}"
+            f"Speech transcription failed on '{audio_path}': {exc}"
         ) from exc

@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from pydantic import ValidationError
 
 from services.llm_provider import call_llm
@@ -274,7 +274,8 @@ def generate_structured_evaluation(
     interview_type: str,
     level: str,
     assessment_goals: List[str],
-    target_competencies: List[Competency]
+    target_competencies: List[Competency],
+    on_chunk: Optional[Callable[[str], None]] = None
 ) -> StructuredEvaluation:
     """Calls the LLM provider to evaluate an answer and strictly parses the output."""
     
@@ -485,7 +486,11 @@ def generate_structured_evaluation(
     
     # 3. Call LLM
     try:
-        raw_response = call_llm(prompt=prompt, system_prompt="You are a strict, objective, experienced interviewer. Output valid JSON only.")
+        raw_response = call_llm(
+            prompt=prompt,
+            system_prompt="You are a strict, objective, experienced interviewer. Output valid JSON only.",
+            on_chunk=on_chunk
+        )
         
         # 4. Clean and parse JSON
         data = _clean_and_parse_json(raw_response)

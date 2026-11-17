@@ -48,17 +48,19 @@ Open `.env` and set your preferred LLM provider (`ollama`, `openrouter`, or `gem
 
 ## 🚀 Running the Applications
 
-### Option A: One-Click Launcher (Windows)
-Double-click `START_ZAIRA.bat` or run:
-```cmd
-START_ZAIRA.bat
-```
-This automatically starts:
-- **FastAPI Backend** on `http://127.0.0.1:8000`
-- **Next.js Frontend** on `http://127.0.0.1:3000`
-- Opens your browser to the Zaira AI Interview dashboard.
+### Option A: One-Click Launcher (Windows / Mac / Linux)
+**Windows**: Double-click `START_ZAIRA.bat` (automatically installs venv & npm packages on first run).
+**macOS / Linux**: Run `./start_zaira.sh`.
 
-### Option B: Manual Start (Any OS)
+### Option B: Docker Compose (Zero Setup)
+Run the entire suite with full system dependencies (including FFmpeg) in one command:
+```bash
+docker compose up --build
+```
+- FastAPI Backend: `http://localhost:8000`
+- Next.js Frontend: `http://localhost:3000`
+
+### Option C: Manual Start
 1. **Start the FastAPI Backend**:
    ```bash
    venv/Scripts/uvicorn backend.api:app --host 0.0.0.0 --port 8000

@@ -2,8 +2,9 @@
 
 import { useState, useRef } from "react";
 import { UploadCloud, CheckCircle2, Video, FileVideo, BrainCircuit, SplitSquareHorizontal, Sparkles, AlertCircle } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "../lib/motion";
 import axios from "axios";
+import { getApiBase, getWsBase } from "../lib/apiConfig";
 import CategoryCards from "../components/CategoryCards";
 import TelemetrySection from "../components/TelemetrySection";
 import LiveCamera from "../components/LiveCamera";
@@ -29,7 +30,7 @@ export default function Dashboard() {
 
   const fetchAnalysisResult = async (sid: string) => {
     try {
-      const res = await axios.get(`http://localhost:8000/api/analysis/${sid}`);
+      const res = await axios.get(`${getApiBase()}/api/analysis/${sid}`);
       if (res.data) {
         if (res.data.status === "completed") {
           setAnalysisData(res.data);
@@ -59,7 +60,7 @@ export default function Dashboard() {
     formData.append("file", file);
 
     try {
-      const res = await axios.post("http://localhost:8000/api/analyze", formData, {
+      const res = await axios.post(`${getApiBase()}/api/analyze`, formData, {
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
@@ -83,7 +84,7 @@ export default function Dashboard() {
     setProgress(0);
     setSessionId(sid);
     
-    const ws = new WebSocket(`ws://localhost:8000/api/ws/status/${sid}`);
+    const ws = new WebSocket(`${getWsBase()}/api/ws/status/${sid}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {

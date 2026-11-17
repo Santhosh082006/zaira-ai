@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
-import { VolumeX } from "lucide-react";
+import { Volume2, VolumeX, Camera, RotateCcw, Sparkles, Mic } from "lucide-react";
 
 export interface InterviewerAvatarProps {
   isSpeaking: boolean;
@@ -12,21 +12,20 @@ export interface InterviewerAvatarProps {
   statusLabel?: string;
   currentWord?: string;
   audioBlob?: Blob | null;
+  mode?: "hero" | "compact";
+  examinerName?: string;
+  examinerRole?: string;
+  questionId?: string;
+  videoUrl?: string | null;
+  liveVideoRef?: React.Ref<HTMLVideoElement>;
+  isLiveAvatarConnected?: boolean;
+  isLiveAvatarConfigured?: boolean;
+  liveAvatarState?: string;
+  statusMessage?: string;
+  hasActiveStream?: boolean;
 }
 
-// 5 Anatomical Viseme Frames generated from Zaira's exact portrait:
-// 0: Resting closed mouth (original photo)
-// 1: Slight open (consonants / soft sound, dy=5px, teeth edge visible)
-// 2: Medium open (normal speech / talking vowels, dy=10px, upper teeth & oral depth)
-// 3: Wide open (emphasis / open vowels 'aa', 'ah', dy=16px, full teeth & oral cavity)
-// 4: Round vowel ('oo', 'oh', 'w', dy=9px, oval aperture)
-const VISEME_FRAMES = [
-  "/images/zaira-viseme-0.png",
-  "/images/zaira-viseme-1.png",
-  "/images/zaira-viseme-2.png",
-  "/images/zaira-viseme-3.png",
-  "/images/zaira-viseme-4.png",
-];
+const DEFAULT_AVATAR = "/images/zaira-avatar.jpg";
 
 export function InterviewerAvatar({
   isSpeaking,
@@ -34,9 +33,29 @@ export function InterviewerAvatar({
   onSkip,
   onSpeechEnd,
   audioBlob,
+  mode = "hero",
+  examinerName = "Zaira",
+  examinerRole = "AI Interviewer (Age 20)",
+  questionId,
+  videoUrl,
+  liveVideoRef,
+  isLiveAvatarConnected = false,
+  isLiveAvatarConfigured = false,
+  liveAvatarState,
+  statusMessage,
+  hasActiveStream = false,
 }: InterviewerAvatarProps) {
-  // Currently active viseme frame (0 = closed resting mouth)
-  const [activeViseme, setActiveViseme] = useState<number>(0);
+  // Custom avatar image or video (persisted in localStorage or state)
+  const [avatarSrc, setAvatarSrc] = useState<string>(DEFAULT_AVATAR);
+  const [isCustomAvatar, setIsCustomAvatar] = useState<boolean>(false);
+  const [questionVideoSrc, setQuestionVideoSrc] = useState<string | null>(null);
+  const [isVideoAvatar, setIsVideoAvatar] = useState<boolean>(false);
+  
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Real-time audio energy (0.0 to 1.0)
+  const [audioEnergy, setAudioEnergy] = useState<number>(0);
 
   // Audio references
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -44,41 +63,128 @@ export function InterviewerAvatar({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  // Audio-driven speech tracking refs
   const isSpeakingRef = useRef<boolean>(isSpeaking);
   isSpeakingRef.current = isSpeaking;
 
-  const currentEnergyRef = useRef<number>(0);
-  const syllabicPhaseRef = useRef<number>(0);
-
-  // Pre-load all viseme frames so frame switching is instantaneous (0ms flicker)
+  // Check if a dedicated question video exists for this question
   useEffect(() => {
-    VISEME_FRAMES.forEach((src) => {
-      const img = new window.Image();
-      img.src = src;
-    });
+    if (videoUrl) {
+      setQuestionVideoSrc(videoUrl);
+      setIsVideoAvatar(true);
+      return;
+    }
+    if (!questionId) {
+      setQuestionVideoSrc(null);
+      return;
+    }
+
+    const testPath = `/videos/questions/${questionId}.mp4`;
+    fetch(testPath, { method: "HEAD" })
+      .then((res) => {
+        if (res.ok) {
+          setQuestionVideoSrc(testPath);
+          setIsVideoAvatar(true);
+        } else {
+          setQuestionVideoSrc(null);
+          // If custom avatar is a video, keep video mode; else image mode
+          setIsVideoAvatar(avatarSrc.startsWith("data:video") || avatarSrc.endsWith(".mp4") || avatarSrc.endsWith(".webm"));
+        }
+      })
+      .catch(() => {
+        setQuestionVideoSrc(null);
+        setIsVideoAvatar(avatarSrc.startsWith("data:video") || avatarSrc.endsWith(".mp4") || avatarSrc.endsWith(".webm"));
+      });
+  }, [questionId, videoUrl, avatarSrc]);
+
+  // Load custom avatar from localStorage if explicitly set for British Council examiner
+  useEffect(() => {
+    try {
+      localStorage.removeItem("zaira_custom_avatar");
+      const saved = localStorage.getItem("zaira_examiner_avatar_v1");
+      if (saved) {
+        setAvatarSrc(saved);
+        setIsCustomAvatar(true);
+        if (saved.startsWith("data:video") || saved.endsWith(".mp4") || saved.endsWith(".webm")) {
+          setIsVideoAvatar(true);
+        }
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
-  // Handle Synchronized Audio Playback
+  const handleCustomAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type.startsWith("video/")) {
+      const videoBlobUrl = URL.createObjectURL(file);
+      setAvatarSrc(videoBlobUrl);
+      setIsVideoAvatar(true);
+      setIsCustomAvatar(true);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      if (result) {
+        setAvatarSrc(result);
+        setIsVideoAvatar(false);
+        setIsCustomAvatar(true);
+        try {
+          localStorage.setItem("zaira_examiner_avatar_v1", result);
+        } catch {
+          // ignore storage limit
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+    if (e.target) e.target.value = "";
+  };
+
+  const handleResetAvatar = () => {
+    setAvatarSrc(DEFAULT_AVATAR);
+    setIsCustomAvatar(false);
+    setIsVideoAvatar(false);
+    try {
+      localStorage.removeItem("zaira_examiner_avatar_v1");
+    } catch {
+      // ignore
+    }
+  };
+
+  // Video playback control
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isVideoAvatar) return;
+
+    if (isSpeaking) {
+      video.currentTime = 0;
+      video.play().catch((err) => console.warn("Video autoplay note:", err));
+    } else {
+      video.pause();
+    }
+  }, [isSpeaking, isVideoAvatar, questionVideoSrc, avatarSrc]);
+
+  // Synchronized Audio Playback & Analysis
   useEffect(() => {
     if (!isSpeaking) {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
       }
-      currentEnergyRef.current = 0;
-      setActiveViseme(0);
+      setAudioEnergy(0);
       return;
     }
 
     if (!audioBlob) return;
 
-    let isCancelled = false;
     const audioUrl = URL.createObjectURL(audioBlob);
     const audio = new Audio(audioUrl);
     audioRef.current = audio;
 
-    // Connect Web Audio Analyser for real-time speech intensity
+    // Connect Web Audio Analyser for live speech intensity
     try {
       const AudioCtxClass =
         window.AudioContext ||
@@ -95,14 +201,14 @@ export function InterviewerAvatar({
 
       const source = ctx.createMediaElementSource(audio);
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.2;
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.25;
       analyserRef.current = analyser;
 
       source.connect(analyser);
       analyser.connect(ctx.destination);
     } catch (err) {
-      console.warn("Analyser setup note, continuing with direct playback:", err);
+      console.warn("Web Audio Analyser fallback note:", err);
     }
 
     audio.onended = () => {
@@ -110,127 +216,67 @@ export function InterviewerAvatar({
       if (audioRef.current === audio) {
         audioRef.current = null;
       }
-      currentEnergyRef.current = 0;
-      setActiveViseme(0);
+      setAudioEnergy(0);
       onSpeechEnd?.();
     };
 
-    audio.onerror = (err) => {
-      console.warn("Audio error:", err);
+    audio.onerror = () => {
       URL.revokeObjectURL(audioUrl);
       if (audioRef.current === audio) {
         audioRef.current = null;
       }
-      currentEnergyRef.current = 0;
-      setActiveViseme(0);
+      setAudioEnergy(0);
       onSpeechEnd?.();
     };
 
     audio.play().catch((err) => {
-      console.warn("Audio autoplay blocked/interrupted:", err);
+      console.warn("Audio autoplay note:", err);
       URL.revokeObjectURL(audioUrl);
       if (audioRef.current === audio) {
         audioRef.current = null;
       }
-      currentEnergyRef.current = 0;
-      setActiveViseme(0);
+      setAudioEnergy(0);
       onSpeechEnd?.();
     });
 
     return () => {
-      isCancelled = true;
       audio.pause();
       URL.revokeObjectURL(audioUrl);
       if (audioRef.current === audio) {
         audioRef.current = null;
       }
-      currentEnergyRef.current = 0;
-      setActiveViseme(0);
+      setAudioEnergy(0);
     };
   }, [isSpeaking, audioBlob, onSpeechEnd]);
 
-  // 60 FPS Real-Time Audio-Driven 2D Lip-Sync Loop
+  // 60 FPS Real-Time Voice Waveform Animation Loop
   useEffect(() => {
-    const freqData = new Uint8Array(128);
+    const freqData = new Uint8Array(64);
     let running = true;
-    let lastTime = performance.now();
+    let fallbackPhase = 0;
 
-    const loop = (now: number) => {
+    const loop = () => {
       if (!running) return;
 
-      const delta = Math.min((now - lastTime) / 1000, 0.05);
-      lastTime = now;
-
       if (isSpeakingRef.current) {
-        let rawEnergy = 0;
-        let lowFreq = 0;
-        let midFreq = 0;
-
+        let energy = 0;
         if (audioRef.current && !audioRef.current.paused && analyserRef.current) {
           analyserRef.current.getByteFrequencyData(freqData);
-
-          // Human speech formants:
-          // Low formant (150Hz - 600Hz): bins 2 to 7
-          // Mid speech formant (600Hz - 2400Hz): bins 8 to 28
-          let lowSum = 0;
-          let midSum = 0;
-
-          for (let i = 2; i <= 7; i++) {
-            lowSum += freqData[i];
+          let sum = 0;
+          for (let i = 2; i <= 24; i++) {
+            sum += freqData[i];
           }
-          for (let i = 8; i <= 28; i++) {
-            midSum += freqData[i];
-          }
-
-          lowFreq = lowSum / (6 * 255);
-          midFreq = midSum / (21 * 255);
-          rawEnergy = Math.max(lowFreq * 0.9, midFreq * 1.1);
+          energy = Math.min(1.0, (sum / (23 * 255)) * 1.6);
         } else {
-          // Robust real-time syllabic cadence whenever speech audio/TTS is active
-          syllabicPhaseRef.current += delta * 13.0;
-          const s = Math.sin(syllabicPhaseRef.current) * 0.5 + 0.5;
-          const cadence = Math.sin(syllabicPhaseRef.current * 0.45) * 0.3 + 0.7;
-          rawEnergy = s > 0.12 ? s * cadence * 0.75 : 0;
-          midFreq = rawEnergy;
-          lowFreq = rawEnergy * 0.8;
+          // Synthetic natural vocal modulation if Web Audio is suspended
+          fallbackPhase += 0.16;
+          const s = Math.sin(fallbackPhase) * 0.5 + 0.5;
+          const wave = Math.sin(fallbackPhase * 0.4) * 0.3 + 0.7;
+          energy = s * wave * 0.75;
         }
-
-        // Fast attack, natural decay envelope
-        const attack = 0.55;
-        const decay = 0.35;
-        const target = rawEnergy > 0.04 ? rawEnergy : 0;
-        
-        if (target > currentEnergyRef.current) {
-          currentEnergyRef.current = currentEnergyRef.current * (1 - attack) + target * attack;
-        } else {
-          currentEnergyRef.current = currentEnergyRef.current * (1 - decay) + target * decay;
-        }
-
-        const energy = currentEnergyRef.current;
-
-        // Select exact anatomical viseme based on speech intensity and vowels
-        if (energy < 0.045) {
-          // Pause / Silence: Return immediately to resting closed mouth
-          setActiveViseme(0);
-        } else if (energy < 0.16) {
-          // Consonants / soft syllable: Slight open (viseme 1)
-          setActiveViseme(1);
-        } else if (energy < 0.32) {
-          // Normal vowel / standard speech: Medium open (viseme 2)
-          // If low frequencies dominate (rounded vowels like 'oh', 'oo'), use viseme 4
-          if (lowFreq > midFreq * 1.25) {
-            setActiveViseme(4);
-          } else {
-            setActiveViseme(2);
-          }
-        } else {
-          // Stressed syllable / wide vowel ('aa', 'ah'): Wide open (viseme 3)
-          setActiveViseme(3);
-        }
+        setAudioEnergy((prev) => prev * 0.65 + energy * 0.35);
       } else {
-        // Not speaking: strictly closed resting mouth
-        currentEnergyRef.current = 0;
-        setActiveViseme(0);
+        setAudioEnergy(0);
       }
 
       animFrameRef.current = requestAnimationFrame(loop);
@@ -256,73 +302,216 @@ export function InterviewerAvatar({
       }
       audioRef.current = null;
     }
-    currentEnergyRef.current = 0;
-    setActiveViseme(0);
+    setAudioEnergy(0);
     onSkip?.();
   }, [onSkip]);
 
   return (
     <div
-      className={`tl-card overflow-hidden rounded-3xl relative bg-gradient-to-b from-[#0c0e18] via-[#07080f] to-[#040508] border transition-colors duration-300 ${
+      className={`tl-card overflow-hidden rounded-3xl relative bg-gradient-to-b from-[#0c0e18] via-[#07080f] to-[#040508] border transition-all duration-300 ${
         isSpeaking
-          ? "border-orange-500/50 shadow-[0_0_35px_rgba(249,115,22,0.18)]"
+          ? "border-teal-500/50 shadow-[0_0_35px_rgba(20,184,166,0.18)]"
           : isThinking
           ? "border-amber-400/40 shadow-[0_0_25px_rgba(251,191,36,0.14)]"
           : "border-white/10 shadow-[0_12px_48px_rgba(0,0,0,0.7)]"
       }`}
     >
-      {/* Fixed Viewport Framing — Completely prevents floating-head and expanding scale jumps */}
-      <div className="relative w-full h-[460px] sm:h-[500px] lg:h-[520px] flex items-end justify-center overflow-hidden bg-black/40">
-        
-        {/* Dynamic 2D Lip-Synced Avatar Stage */}
-        <div className="relative w-full h-full max-w-[620px] flex items-end justify-center z-10">
-          {VISEME_FRAMES.map((src, index) => (
-            <div
-              key={src}
-              className={`absolute inset-0 w-full h-full flex items-end justify-center pointer-events-none select-none transition-opacity duration-75 ${
-                activeViseme === index ? "opacity-100 z-10" : "opacity-0 z-0"
-              }`}
-            >
-              <Image
-                src={src}
-                alt="Zaira - AI Interviewer"
-                fill
-                sizes="(max-width: 768px) 100vw, (max-width: 1400px) 70vw, 800px"
-                priority={index === 0}
-                unoptimized
-                className="object-contain object-bottom pointer-events-none select-none drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)]"
-              />
-            </div>
-          ))}
+      {/* Hidden file input for custom avatar photo or video upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/mp4,video/webm"
+        onChange={handleCustomAvatarUpload}
+        className="hidden"
+      />
+
+      {/* Top Header Status & Avatar Customization */}
+      <div className="absolute top-4 inset-x-4 z-20 flex items-center justify-between pointer-events-none">
+        {/* Status Pill */}
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-xs font-medium text-white shadow-lg pointer-events-auto">
+          {liveAvatarState === "CONNECTING" ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span className="text-amber-300 font-mono text-[11px]">
+                Connecting LiveAvatar Lite WebRTC...
+              </span>
+            </>
+          ) : liveAvatarState === "ERROR" ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-red-400" />
+              <span className="text-red-300 font-mono text-[11px]" title={statusMessage}>
+                LiveAvatar Offline (Fallback Active)
+              </span>
+            </>
+          ) : isLiveAvatarConnected ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-300 font-mono text-[11px]">
+                {examinerName} • {isSpeaking ? "Speaking" : "Attentive Listening"} (LiveAvatar WebRTC)
+              </span>
+            </>
+          ) : isSpeaking ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+              <span className="text-teal-300 font-mono text-[11px]">
+                {examinerName} {isVideoAvatar ? "(Video Mode)" : "Speaking"}
+              </span>
+            </>
+          ) : isThinking ? (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+              <span className="text-amber-300 font-mono text-[11px]">Evaluating Response...</span>
+            </>
+          ) : (
+            <>
+              <Mic className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-zinc-300 font-mono text-[11px]">{examinerName} (Listening)</span>
+            </>
+          )}
         </div>
 
-        {/* Studio Lighting Background Glow */}
+        {/* Change / Reset Photo Action Buttons */}
+        <div className="flex items-center gap-1.5 pointer-events-auto">
+          {isCustomAvatar && (
+            <button
+              onClick={handleResetAvatar}
+              className="p-1.5 rounded-lg bg-black/60 hover:bg-black/90 text-zinc-300 hover:text-white border border-white/10 transition-all backdrop-blur-md shadow-sm"
+              title="Reset to default British Council examiner"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-black/60 hover:bg-black/90 text-zinc-300 hover:text-white border border-white/10 text-xs transition-all backdrop-blur-md shadow-sm"
+            title="Upload custom avatar video (.mp4) or portrait photo"
+          >
+            <Camera className="w-3.5 h-3.5 text-teal-400" />
+            <span className="text-[11px] hidden sm:inline">Change Video / Photo</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Viewport Framing for Crisp, Pristine Avatar Portrait or Video */}
+      <div
+        className={`relative w-full flex items-end justify-center overflow-hidden bg-black/40 ${
+          mode === "compact"
+            ? "h-[250px] sm:h-[280px]"
+            : "h-[460px] sm:h-[500px] lg:h-[520px]"
+        }`}
+      >
+        
+        {/* Natural Ambient Aura Glowing with Real Speech Intensity */}
         <div
-          className={`absolute inset-0 pointer-events-none transition-opacity duration-500 ${
-            isSpeaking
-              ? "opacity-100 bg-[radial-gradient(ellipse_at_center,_rgba(249,115,22,0.12)_0%,_transparent_70%)]"
+          className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+          style={{
+            background: isSpeaking
+              ? `radial-gradient(circle at 50% 40%, rgba(20, 184, 166, ${0.12 + audioEnergy * 0.2}) 0%, transparent 70%)`
               : isThinking
-              ? "opacity-100 bg-[radial-gradient(ellipse_at_center,_rgba(251,191,36,0.08)_0%,_transparent_70%)]"
-              : "opacity-30 bg-[radial-gradient(ellipse_at_center,_rgba(16,185,129,0.05)_0%,_transparent_65%)]"
-          }`}
+              ? "radial-gradient(circle at 50% 40%, rgba(251, 191, 36, 0.1) 0%, transparent 65%)"
+              : "radial-gradient(circle at 50% 40%, rgba(16, 185, 129, 0.05) 0%, transparent 60%)",
+          }}
         />
 
-        {/* Bottom subtle gradient vignette */}
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#040508]/80 to-transparent pointer-events-none z-10" />
+        {/* Media Frame: LiveAvatar WebRTC, Synchronized MP4 Video, or Photographic Portrait */}
+        <div
+          className={`relative w-full h-full max-w-[620px] flex items-end justify-center z-10 transition-transform duration-150 ${
+            !isSpeaking && !isVideoAvatar && !isLiveAvatarConnected ? "avatar-idle-breathe" : ""
+          }`}
+          style={{
+            transform: isSpeaking && !isVideoAvatar && !isLiveAvatarConnected
+              ? `scale(${1 + audioEnergy * 0.015}) translateY(-${audioEnergy * 3}px)`
+              : undefined,
+          }}
+        >
+          <div className="relative w-full h-full flex items-end justify-center pointer-events-none select-none">
+            {/* Live HeyGen WebRTC Video Element — ALWAYS mounted when configured so stream attachment never fails */}
+            {isLiveAvatarConfigured && liveVideoRef && (
+              <video
+                ref={liveVideoRef}
+                id="heygen-live-video"
+                className={`w-full h-full object-contain object-bottom select-none transition-opacity duration-500 drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)] ${
+                  isLiveAvatarConnected ? "opacity-100 z-10" : "opacity-0 pointer-events-none z-0"
+                }`}
+                playsInline
+                autoPlay
+              />
+            )}
 
-        {/* Minimal Skip Audio CTA while speech is actively playing */}
-        {isSpeaking && onSkip && (
-          <div className="absolute bottom-3 right-3 z-20">
-            <button
-              onClick={handleSkip}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/70 hover:bg-black/90 text-zinc-300 hover:text-white rounded-lg text-xs font-medium border border-white/10 transition-all backdrop-blur-md shadow-sm"
-              aria-label="Skip question audio and proceed to answer"
-            >
-              <VolumeX className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Skip Audio</span>
-            </button>
+            {/* Fallback photographic portrait or dedicated question video when WebRTC is not active */}
+            {(!isLiveAvatarConnected || !isLiveAvatarConfigured) && (
+              isVideoAvatar ? (
+                <video
+                  ref={videoRef}
+                  src={questionVideoSrc || avatarSrc}
+                  className="w-full h-full object-contain object-bottom pointer-events-none select-none drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)]"
+                  playsInline
+                  autoPlay={isSpeaking}
+                  onEnded={() => {
+                    onSpeechEnd?.();
+                  }}
+                />
+              ) : (
+                <Image
+                  src={avatarSrc}
+                  alt="Zaira - AI Interviewer"
+                  fill
+                  sizes="(max-width: 768px) 100vw, (max-width: 1400px) 70vw, 800px"
+                  priority
+                  unoptimized
+                  className="object-contain object-bottom pointer-events-none select-none drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)]"
+                />
+              )
+            )}
           </div>
-        )}
+        </div>
+
+        {/* Elegant Bottom Shadow Vignette */}
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#040508] via-[#040508]/80 to-transparent pointer-events-none z-15" />
+
+        {/* Bottom Floating Equalizer & Control Bar */}
+        <div className="absolute bottom-4 inset-x-4 z-20 flex items-center justify-between pointer-events-none">
+          {/* Live Soundwave Audio Visualizer */}
+          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-black/70 backdrop-blur-md border border-white/10 shadow-lg pointer-events-auto">
+            <Volume2 className={`w-3.5 h-3.5 ${isSpeaking ? "text-teal-400" : "text-zinc-500"}`} />
+            
+            {/* Dynamic Equalizer Frequency Bars */}
+            <div className="flex items-end gap-1 h-3.5">
+              {[0.4, 0.9, 0.6, 1.0, 0.5].map((factor, idx) => {
+                const heightPercent = isSpeaking
+                  ? Math.max(15, Math.min(100, (audioEnergy * factor + (idx % 2 === 0 ? 0.2 : 0.1)) * 100))
+                  : 15;
+                return (
+                  <span
+                    key={idx}
+                    className={`w-1 rounded-full transition-all duration-75 ${
+                      isSpeaking ? "bg-teal-400" : "bg-zinc-600"
+                    }`}
+                    style={{ height: `${heightPercent}%` }}
+                  />
+                );
+              })}
+            </div>
+
+            <span className="text-[11px] font-mono text-zinc-300">
+              {isSpeaking ? "Voice Active" : isThinking ? "Processing" : "Standby"}
+            </span>
+          </div>
+
+          {/* Skip Audio Button */}
+          {isSpeaking && onSkip && (
+            <div className="pointer-events-auto">
+              <button
+                onClick={handleSkip}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-black/70 hover:bg-black/90 text-zinc-300 hover:text-white rounded-xl text-xs font-medium border border-white/10 transition-all backdrop-blur-md shadow-lg"
+                aria-label="Skip question audio and proceed to answer"
+              >
+                <VolumeX className="w-3.5 h-3.5 text-zinc-400" />
+                <span>Skip Audio</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import uuid
 import json
 import os
 import threading
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, Tuple, List, Callable
 
 from core.schemas import InterviewState, Question, AnswerRecord, NextQuestionDecision
 from core.question_bank import QuestionBank
@@ -72,9 +72,25 @@ class InterviewSessionService:
                 history_texts.append(q_hist.question_text)
 
         # Fast-path for opening question (no candidate answer yet):
-        # Use the controller-selected QuestionBank question or curated domain question immediately
-        # to avoid a 90+ second local LLM inference delay right at session launch.
         if not latest_answer:
+            # If resume or job description is provided, prioritize a dynamically tailored opening prompt!
+            if state.resume_text or state.job_description:
+                try:
+                    dyn_opening = generate_adaptive_question(
+                        state=state,
+                        decision=decision,
+                        latest_answer=None,
+                        target_competency=target_comp,
+                        previous_question_text=None,
+                        question_history_texts=[]
+                    )
+                    if dyn_opening:
+                        self.qb.add_question(dyn_opening)
+                        decision.next_question_id = dyn_opening.id
+                        return dyn_opening
+                except Exception:
+                    pass
+
             if decision.next_question_id:
                 cand_q = self.qb.get_question_by_id(decision.next_question_id)
                 if cand_q:
@@ -142,7 +158,9 @@ class InterviewSessionService:
         interview_level: str,
         assessment_goals: List[str],
         technical_domain: Optional[str] = None,
-        custom_goal: Optional[str] = None
+        custom_goal: Optional[str] = None,
+        resume_text: Optional[str] = None,
+        job_description: Optional[str] = None
     ) -> Tuple[InterviewState, Optional[Question]]:
         
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
@@ -188,6 +206,8 @@ class InterviewSessionService:
             assessment_goals=target_competencies, # Set goals as explicit IDs for controller processing
             technical_domain=technical_domain,
             custom_goal=custom_goal,
+            resume_text=resume_text.strip() if resume_text and resume_text.strip() else None,
+            job_description=job_description.strip() if job_description and job_description.strip() else None,
             competencies_missing=list(target_competencies)
         )
         
@@ -219,7 +239,9 @@ class InterviewSessionService:
         question_id: str,
         media_path: str,
         media_type: str,
-        media_processor: Any # Pass in MediaProcessor instance
+        media_processor: Any, # Pass in MediaProcessor instance
+        on_stage: Optional[Callable[[str, str, int], None]] = None,
+        on_chunk: Optional[Callable[[str], None]] = None
     ) -> Tuple[InterviewState, Optional[Question], AnswerRecord, NextQuestionDecision]:
         """
         Process a real audio/video file.
@@ -227,12 +249,18 @@ class InterviewSessionService:
         """
         if media_type not in ["audio", "video"]:
             raise ValueError("media_type must be 'audio' or 'video'")
+
+        if on_stage:
+            on_stage("transcribing", "Transcribing speech and extracting acoustic telemetry with Whisper...", 20)
             
         # 1. Execute heavy synchronous media pipeline (outside of session transaction)
         if media_type == "audio":
             analysis = media_processor.process_audio(media_path)
         else:
             analysis = media_processor.process_video(media_path)
+
+        if on_stage:
+            on_stage("telemetry", "Synthesizing facial gaze, speaking cadence, and vocal pitch...", 45)
             
         # 2. Delegate to the standard processing pipeline within the safety of the transaction
         return self.process_candidate_answer(
@@ -244,7 +272,9 @@ class InterviewSessionService:
             visual_metrics=analysis.visual_metrics,
             language_metrics=analysis.language_metrics,
             duration=analysis.duration,
-            media_reference=analysis.media_reference
+            media_reference=analysis.media_reference,
+            on_stage=on_stage,
+            on_chunk=on_chunk
         )
 
     def process_candidate_answer(
@@ -257,7 +287,9 @@ class InterviewSessionService:
         visual_metrics: Optional[Dict[str, float]] = None,
         language_metrics: Optional[Dict[str, float]] = None,
         duration: float = 0.0,
-        media_reference: str = ""
+        media_reference: str = "",
+        on_stage: Optional[Callable[[str, str, int], None]] = None,
+        on_chunk: Optional[Callable[[str], None]] = None
     ) -> Tuple[InterviewState, Optional[Question], AnswerRecord, NextQuestionDecision]:
         
         with self._get_session_lock(session_id):
@@ -280,6 +312,9 @@ class InterviewSessionService:
             
             import copy
             working_state = copy.deepcopy(state)
+
+            if on_stage:
+                on_stage("evaluating_rubric", "Evaluating answer against technical, structural, and communication rubrics...", 60)
             
             # Evaluate Answer
             working_state, record = self.evaluator.process_answer(
@@ -291,7 +326,8 @@ class InterviewSessionService:
                 visual_metrics=visual_metrics,
                 language_metrics=language_metrics,
                 duration=duration,
-                media_reference=media_reference
+                media_reference=media_reference,
+                on_chunk=on_chunk
             )
             
             # Check if this answer is a retry revision
@@ -305,9 +341,15 @@ class InterviewSessionService:
                 self.revision_deltas[record.answer_id] = revision_delta
                 del self.retry_originals[key]
 
-            # Cache latest record
+            # Cache latest record in memory and save checkpoint
             self.answer_records[record.answer_id] = record
             self.answer_records[f"{session_id}_{question_id}_latest"] = record
+            try:
+                rec_path = os.path.join(self.checkpoint_dir, f"{record.answer_id}.json")
+                with open(rec_path, 'w', encoding='utf-8') as f:
+                    f.write(record.model_dump_json())
+            except Exception as ce:
+                pass
 
             # Check Evaluation Status
             if record.structured_evaluation and record.structured_evaluation.evaluation_status != "success":
@@ -415,6 +457,21 @@ class InterviewSessionService:
                 state = InterviewState(**data)
                 self.active_sessions[session_id] = state
                 return state
+        return None
+
+    def get_answer_record(self, answer_id: str) -> Optional[AnswerRecord]:
+        if answer_id in self.answer_records:
+            return self.answer_records[answer_id]
+        path = os.path.join(self.checkpoint_dir, f"{answer_id}.json")
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    record = AnswerRecord(**data)
+                    self.answer_records[answer_id] = record
+                    return record
+            except Exception:
+                return None
         return None
 
     def _save_checkpoint(self, state: InterviewState):

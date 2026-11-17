@@ -213,7 +213,9 @@ def build_system_prompt() -> str:
         "  - NEVER invent or hallucinate hypothetical teams, imaginary past projects, fictional stakeholders, or unmentioned technologies.\n"
         "  - If the candidate gave a very brief or empty answer ('I don't know' or a few words), ask them to clarify or attempt a related fundamental concept without inventing a fictional back-story.\n\n"
         "6. NO DUPLICATES:\n"
-        "Do NOT repeat, duplicate, or re-ask themes from the previously asked questions list."
+        "Do NOT repeat, duplicate, or re-ask themes from the previously asked questions list.\n\n"
+        "7. RESUME & JOB DESCRIPTION GROUNDING:\n"
+        "If a Candidate Resume or Target Job Description is provided in the context below, you MUST ground your questions directly in the candidate's real-world projects, claims, frameworks, and job requirements. Formulate realistic questions that a senior interviewer would ask about their specific listed accomplishments (e.g. 'I noticed on your resume you built an event-driven ingestion pipeline with Kafka—what challenges did you face with partitioning and backpressure?')."
     )
 
 
@@ -245,6 +247,14 @@ def build_user_prompt(
     if question_history_texts:
         history_str = "\n".join(f"- {q_text}" for q_text in question_history_texts)
 
+    resume_section = ""
+    if state.resume_text:
+        resume_section = f"- Candidate Resume / Experience Profile:\n\"\"\"\n{state.resume_text[:2000]}\n\"\"\"\n"
+
+    jd_section = ""
+    if state.job_description:
+        jd_section = f"- Target Job Description / Role Requirements:\n\"\"\"\n{state.job_description[:2000]}\n\"\"\"\n"
+
     prompt = (
         f"INTERVIEW CONFIGURATION:\n"
         f"- Interview Type: {state.interview_type}\n"
@@ -252,6 +262,8 @@ def build_user_prompt(
         f"- Technical Domain: {state.technical_domain or 'None'}\n"
         f"- Assessment Goals: {', '.join(state.assessment_goals)}\n"
         f"- Custom Goal / Context: {state.custom_goal or 'None'}\n"
+        f"{resume_section}"
+        f"{jd_section}"
         f"- Current Difficulty Target: {state.current_difficulty:.2f}\n\n"
         f"ADAPTIVE CONTROLLER STATUS:\n"
         f"- Controller Action: {decision.decision_type}\n"

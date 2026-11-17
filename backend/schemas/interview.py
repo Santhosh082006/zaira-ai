@@ -7,6 +7,8 @@ class StartInterviewRequest(BaseModel):
     assessment_goals: List[str]
     technical_domain: Optional[str] = None
     custom_goal: Optional[str] = None
+    resume_text: Optional[str] = None
+    job_description: Optional[str] = None
 
 class QuestionModel(BaseModel):
     id: str
@@ -23,6 +25,8 @@ class StartInterviewResponse(BaseModel):
     assessment_goals: List[str]
     technical_domain: Optional[str] = None
     custom_goal: Optional[str] = None
+    resume_text: Optional[str] = None
+    job_description: Optional[str] = None
     completion_status: str
     interview_progress: float
 
@@ -127,11 +131,18 @@ class AvatarTokenResponse(BaseModel):
     available: bool
     provider: str
     token: Optional[str] = None
+    avatar_id: Optional[str] = None
+    voice_id: Optional[str] = None
+    session_id: Optional[str] = None
     message: Optional[str] = None
 
 class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = "en-US-AvaNeural"
+    rate: Optional[str] = "-3%"
+    pitch: Optional[str] = "+0Hz"
+    conversational_flow: Optional[bool] = True
+    audio_format: Optional[str] = "mp3"
 
 class RetryAnswerRequest(BaseModel):
     session_id: str
@@ -143,3 +154,13 @@ class RetryAnswerResponse(BaseModel):
     previous_answer_id: Optional[str] = None
     previous_score: Optional[float] = None
     message: str
+
+class ResumeParseResponse(BaseModel):
+    success: bool
+    filename: str
+    text: str
+    word_count: int
+    char_count: int
+    page_count: int
+    error: Optional[str] = None
+

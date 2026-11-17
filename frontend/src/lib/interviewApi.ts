@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getApiBase } from "./apiConfig";
 
 export interface InterviewStartRequest {
   interview_type: string;
@@ -6,6 +7,8 @@ export interface InterviewStartRequest {
   assessment_goals: string[];
   technical_domain?: string | null;
   custom_goal?: string | null;
+  resume_text?: string | null;
+  job_description?: string | null;
 }
 
 export interface Question {
@@ -24,6 +27,8 @@ export interface InterviewStartResponse {
   assessment_goals: string[];
   technical_domain: string | null;
   custom_goal?: string | null;
+  resume_text?: string | null;
+  job_description?: string | null;
   completion_status: string;
   interview_progress: number;
 }
@@ -159,27 +164,20 @@ export interface InterviewState {
   status: string; // e.g., 'in_progress', 'completed'
 }
 
-const getApiBase = () => {
-  if (process.env.NEXT_PUBLIC_API_URL) return `${process.env.NEXT_PUBLIC_API_URL}/interview`;
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname || "127.0.0.1";
-    return `http://${host}:8000/api/interview`;
-  }
-  return "http://127.0.0.1:8000/api/interview";
-};
+const getInterviewApiBase = () => `${getApiBase()}/api/interview`;
 
 export const startInterview = async (req: InterviewStartRequest): Promise<InterviewStartResponse> => {
-  const res = await axios.post(`${getApiBase()}/start`, req);
+  const res = await axios.post(`${getInterviewApiBase()}/start`, req);
   return res.data;
 };
 
 export const submitAnswerRest = async (req: AnswerSubmission): Promise<AnswerSubmissionResponse> => {
-  const res = await axios.post(`${getApiBase()}/answer`, req);
+  const res = await axios.post(`${getInterviewApiBase()}/answer`, req);
   return res.data;
 };
 
 export const getInterviewState = async (sessionId: string): Promise<InterviewState> => {
-  const res = await axios.get(`${getApiBase()}/state/${sessionId}`);
+  const res = await axios.get(`${getInterviewApiBase()}/state/${sessionId}`);
   return res.data;
 };
 
@@ -193,7 +191,7 @@ export const submitMediaAnswerRest = async (
   formData.append("question_id", questionId);
   formData.append("file", file, filename);
 
-  const res = await axios.post(`${getApiBase()}/${sessionId}/answer/media`, formData, {
+  const res = await axios.post(`${getInterviewApiBase()}/${sessionId}/answer/media`, formData, {
     headers: {
       "Content-Type": "multipart/form-data",
     },
@@ -205,12 +203,15 @@ export interface AvatarTokenResponse {
   available: boolean;
   provider: string;
   token?: string | null;
+  session_id?: string | null;
+  avatar_id?: string | null;
+  voice_id?: string | null;
   message?: string | null;
 }
 
 export const getAvatarSessionToken = async (): Promise<AvatarTokenResponse> => {
   try {
-    const res = await axios.post(`${getApiBase()}/avatar/token`);
+    const res = await axios.post(`${getInterviewApiBase()}/avatar/token`);
     return res.data;
   } catch (err: unknown) {
     return {
@@ -221,12 +222,46 @@ export const getAvatarSessionToken = async (): Promise<AvatarTokenResponse> => {
   }
 };
 
-export const fetchQuestionAudio = async (text: string): Promise<Blob | null> => {
+export interface PcmAudioResponse {
+  status: string;
+  format: string;
+  sample_rate: number;
+  channels: number;
+  duration_sec: number;
+  total_bytes: number;
+  chunks: string[];
+}
+
+export const fetchQuestionPcmAudio = async (
+  text: string,
+  voice: string = "en-US-AvaNeural",
+  rate: string = "-3%"
+): Promise<PcmAudioResponse | null> => {
+  try {
+    const res = await axios.post(`${getInterviewApiBase()}/tts`, {
+      text,
+      voice,
+      rate,
+      conversational_flow: true,
+      audio_format: "pcm24k",
+    });
+    return res.data as PcmAudioResponse;
+  } catch (err: unknown) {
+    console.warn("PCM audio fetch error:", err);
+    return null;
+  }
+};
+
+export const fetchQuestionAudio = async (
+  text: string,
+  voice: string = "en-US-AvaNeural",
+  rate: string = "-3%"
+): Promise<Blob | null> => {
   try {
     const res = await axios.post(
-      `${getApiBase()}/tts`,
-      { text },
-      { responseType: "blob", timeout: 8000 }
+      `${getInterviewApiBase()}/tts`,
+      { text, voice, rate, conversational_flow: true },
+      { responseType: "blob", timeout: 12000 }
     );
     return res.data as Blob;
   } catch (err: unknown) {
@@ -247,9 +282,88 @@ export const retryAnswerRest = async (
   sessionId: string,
   questionId: string
 ): Promise<RetryAnswerResponse> => {
-  const res = await axios.post(`${getApiBase()}/retry`, {
+  const res = await axios.post(`${getInterviewApiBase()}/retry`, {
     session_id: sessionId,
     question_id: questionId,
+  });
+  return res.data;
+};
+
+export interface CompetencyReportItem {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+  score: number;
+  evidence_count: number;
+  evidence_found?: string[];
+  findings?: string[];
+}
+
+export interface AggregateTelemetry {
+  avg_wpm: number | null;
+  total_speaking_time_sec: number;
+  avg_face_presence_pct: number | null;
+  avg_pause_duration_sec: number | null;
+  total_questions_answered: number;
+}
+
+export interface QuestionAuditItem {
+  question_number: number;
+  question_id: string;
+  question_text: string;
+  question_type: string;
+  transcript: string;
+  score: number;
+  total_marks_awarded: number;
+  total_max_marks: number;
+  duration_sec: number;
+  wpm: number | null;
+  rubric_criteria: RubricCriterion[];
+  strengths: string[];
+  weaknesses: string[];
+  actionable_findings: ActionableFinding[];
+}
+
+export interface InterviewReport {
+  session_id: string;
+  interview_type: string;
+  interview_level: string;
+  technical_domain?: string | null;
+  custom_goal?: string | null;
+  overall_score: number;
+  performance_level: string;
+  summary_assessment: string;
+  completion_status: string;
+  aggregate_telemetry: AggregateTelemetry;
+  competency_breakdown: CompetencyReportItem[];
+  strengths: string[];
+  growth_targets: string[];
+  questions_audit: QuestionAuditItem[];
+}
+
+export const fetchInterviewReport = async (sessionId: string): Promise<InterviewReport> => {
+  const res = await axios.get(`${getInterviewApiBase()}/${sessionId}/report`);
+  return res.data as InterviewReport;
+};
+
+export interface ResumeParseResult {
+  success: boolean;
+  filename: string;
+  text: string;
+  word_count: number;
+  char_count: number;
+  page_count: number;
+  error?: string | null;
+}
+
+export const parseResumeFile = async (file: File): Promise<ResumeParseResult> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await axios.post(`${getInterviewApiBase()}/parse-resume`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
   });
   return res.data;
 };
