@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AlertCircle, Sparkles, Volume2, VolumeX, X, ArrowRight } from "lucide-react";
+import { AlertCircle, Sparkles, Volume2, ArrowRight } from "lucide-react";
 import { AudioRecorder } from "./AudioRecorder";
 import { InterviewerAvatar } from "./InterviewerAvatar";
 import { InterviewConfig } from "./interview/InterviewConfig";
@@ -45,67 +45,79 @@ export default function InterviewDashboard() {
     retryCurrentQuestion,
   } = useInterviewSession();
 
-  const handleLiveSpeechStart = React.useCallback(() => {
-    setQuestionPhase("SPEAKING");
-  }, []);
+  const [questionPhase, setQuestionPhase] = React.useState<"SPEAKING" | "READY_TO_ANSWER">("SPEAKING");
 
-  const handleLiveSpeechEnd = React.useCallback(() => {
-    setQuestionPhase("READY_TO_ANSWER");
+  // Acoustic guard delay: wait 500ms after audio ends so room echo/speakers are quiet before mic opens
+  const handleSpeechConcluded = React.useCallback(() => {
+    setTimeout(() => {
+      setQuestionPhase("READY_TO_ANSWER");
+    }, 500);
   }, []);
 
   const liveAvatar = useLiveAvatar({
-    onSpeechStart: handleLiveSpeechStart,
-    onSpeechEnd: handleLiveSpeechEnd,
+    onSpeechStart: () => setQuestionPhase("SPEAKING"),
+    onSpeechEnd: handleSpeechConcluded,
   });
 
-  const {
-    questionPhase,
-    setQuestionPhase,
-    speechFailed,
-    activeWord,
-    questionAudioBlob,
-    speakQuestion,
-    stopSpeaking,
-    replayQuestion,
-    handleAvatarSpeechEnd,
-    resetVoiceState,
-  } = useAvatarVoice(currentQuestion, appState === "READY" && !liveAvatar.isConfigured);
+  const avatarVoice = useAvatarVoice(undefined, false, {
+    onSpeechStart: () => setQuestionPhase("SPEAKING"),
+    onSpeechEnd: handleSpeechConcluded,
+  });
+
+  // Single authoritative source of truth: is the avatar speaking right now?
+  const isAvatarSpeaking = Boolean(
+    (liveAvatar.isConfigured && liveAvatar.hasActiveStream && liveAvatar.state === "SPEAKING") ||
+    avatarVoice.isSpeaking
+  );
 
   const lastSpokenQuestionIdRef = React.useRef<string | null>(null);
   const isFirstQuestionRef = React.useRef<boolean>(true);
   const hasSpokenCompletionRef = React.useRef<boolean>(false);
 
-  // When a new question arrives and LiveAvatar Lite is configured, articulate it via WebRTC
+  // Authoritative speech pipeline: attempts LiveAvatar first, falls back cleanly to Neural Voice
+  const articulatePrompt = React.useCallback(
+    async (promptText: string) => {
+      // 1. Immediately halt any previous speech to eliminate overlapping voice
+      if (liveAvatar.isConfigured) {
+        liveAvatar.interrupt();
+      }
+      avatarVoice.stopSpeaking();
+
+      // 2. Try HeyGen LiveAvatar BYOA if available and healthy
+      if (liveAvatar.isConfigured && liveAvatar.state !== "ERROR") {
+        console.log("[Audio Pipeline] Attempting HeyGen LiveAvatar speech articulation...");
+        const ok = await liveAvatar.speakText(promptText);
+        if (ok) {
+          console.log("[Audio Pipeline] LiveAvatar speaking initiated successfully.");
+          return;
+        }
+        console.warn("[Audio Pipeline] LiveAvatar unavailable. Continuing with Neural Voice.");
+      }
+
+      // 3. Mutually exclusive fallback: Neural Voice TTS
+      console.log("[Audio Pipeline] Articulating via Neural Voice...");
+      await avatarVoice.speakText(promptText);
+    },
+    [liveAvatar, avatarVoice]
+  );
+
+  // When a new question arrives in READY state, articulate it exactly once
   React.useEffect(() => {
     if (appState === "READY" && currentQuestion) {
       if (lastSpokenQuestionIdRef.current !== currentQuestion.id) {
         lastSpokenQuestionIdRef.current = currentQuestion.id;
         setQuestionPhase("SPEAKING");
 
-        // Format spoken prompt with professional warm greeting on opening question
         let spokenPrompt = currentQuestion.question_text;
         if (isFirstQuestionRef.current) {
           isFirstQuestionRef.current = false;
           spokenPrompt = `Hello, and welcome! I am Zaira, your AI interviewer today. To get started: ${currentQuestion.question_text}`;
         }
 
-        if (liveAvatar.isConfigured) {
-          liveAvatar
-            .speakText(spokenPrompt)
-            .then((ok) => {
-              if (!ok) {
-                console.warn("LiveAvatar speech returned false, falling back to neural TTS");
-                speakQuestion(currentQuestion);
-              }
-            })
-            .catch((err) => {
-              console.warn("LiveAvatar speech error, falling back to neural TTS:", err);
-              speakQuestion(currentQuestion);
-            });
-        }
+        articulatePrompt(spokenPrompt);
       }
     }
-  }, [appState, currentQuestion, liveAvatar.isConfigured, liveAvatar.speakText, speakQuestion, setQuestionPhase]);
+  }, [appState, currentQuestion, articulatePrompt]);
 
   // Articulate concluding remarks when interview completes
   React.useEffect(() => {
@@ -113,33 +125,23 @@ export default function InterviewDashboard() {
       hasSpokenCompletionRef.current = true;
       const closingMsg =
         "Thank you so much for your time and thoughtful responses today. That concludes our interview session. Your detailed performance evaluation and rubric feedback are now ready for your review.";
-      if (liveAvatar.isConfigured) {
-        liveAvatar.speakText(closingMsg).catch((err) => {
-          console.warn("Closing speech notice:", err);
-        });
-      }
+      articulatePrompt(closingMsg);
     }
-  }, [appState, liveAvatar.isConfigured, liveAvatar.speakText]);
+  }, [appState, articulatePrompt]);
 
   const handleStopSpeaking = React.useCallback(() => {
     if (liveAvatar.isConfigured) {
       liveAvatar.interrupt();
     }
-    stopSpeaking();
+    avatarVoice.stopSpeaking();
     setQuestionPhase("READY_TO_ANSWER");
-  }, [liveAvatar, stopSpeaking, setQuestionPhase]);
+  }, [liveAvatar, avatarVoice]);
 
   const handleReplayQuestion = React.useCallback(() => {
     if (!currentQuestion) return;
     setQuestionPhase("SPEAKING");
-    if (liveAvatar.isConfigured) {
-      liveAvatar.speakText(currentQuestion.question_text).catch(() => {
-        replayQuestion();
-      });
-    } else {
-      replayQuestion();
-    }
-  }, [currentQuestion, liveAvatar, replayQuestion, setQuestionPhase]);
+    articulatePrompt(currentQuestion.question_text);
+  }, [currentQuestion, articulatePrompt]);
 
   const handleStart = () => {
     setQuestionPhase("SPEAKING");
@@ -158,7 +160,7 @@ export default function InterviewDashboard() {
     if (liveAvatar.isConfigured) {
       liveAvatar.disconnect();
     }
-    resetVoiceState();
+    avatarVoice.stopSpeaking();
     resetSession();
   };
 
@@ -179,91 +181,22 @@ export default function InterviewDashboard() {
   };
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 text-white min-h-screen">
-      <div
-        className={`mx-auto transition-all duration-300 ${
-          appState === "READY" || appState === "PROCESSING"
-            ? "max-w-[1580px] w-full space-y-6"
-            : appState === "ANSWER_RESULT"
-            ? "max-w-6xl w-full space-y-6"
-            : "max-w-5xl w-full space-y-6"
-        }`}
-      >
-        {/* Top Header & Breadcrumb */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.07] pb-5">
-          <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-[10px] font-mono tracking-widest text-emerald-400/90 uppercase font-semibold">
-                Zaira AI
-              </span>
-              <span className="text-white/20 text-xs">•</span>
-              <span className="text-[10px] font-mono tracking-wider text-white/50 uppercase">
-                AI Communication & Interview Assistance
-              </span>
-            </div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
-              AI Adaptive Interview
-            </h1>
-            <p className="text-xs md:text-sm text-white/50 mt-1">
-              Spoken prompt generation with real-time multi-modal candidate assessment and adaptive inquiry.
-            </p>
+    <div className="min-h-screen bg-[#030407] text-white">
+      {/* Global Session Error Banner */}
+      {errorMsg && (
+        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-3 text-red-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2 max-w-4xl mx-auto w-full">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
           </div>
-          {appState !== "CONFIG" && (
-            <button
-              onClick={handleReset}
-              className="self-start sm:self-center flex items-center gap-2 text-xs text-white/60 hover:text-white px-3.5 py-2 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] transition-all hover:border-white/20"
-            >
-              <X className="w-3.5 h-3.5 text-white/50" />
-              <span>Exit Session</span>
-            </button>
-          )}
         </div>
+      )}
 
-        {/* Global Error Banner */}
-        {errorMsg && (
-          <div className="p-4 bg-red-950/30 border border-red-500/30 rounded-xl flex flex-col gap-3 text-red-200 backdrop-blur-xl">
-            <div className="flex gap-3 items-start">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-400" />
-              <p className="text-sm text-red-200/90 leading-relaxed">{errorMsg}</p>
-            </div>
-            {appState === "ERROR" && (
-              <div className="flex justify-end gap-3 pt-2 border-t border-red-500/20">
-                {sessionId && currentQuestion && (
-                  <button
-                    onClick={retryCurrentQuestion}
-                    className="px-4 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-medium transition-colors text-white"
-                  >
-                    Retry Current Question
-                  </button>
-                )}
-                <button
-                  onClick={handleReset}
-                  className="px-4 py-1.5 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-xs font-medium transition-colors text-white"
-                >
-                  Start New Interview
-                </button>
-              </div>
-            )}
-            {appState === "EVAL_ERROR" && (
-              <div className="flex justify-end gap-3 pt-2 border-t border-red-500/20">
-                <button
-                  onClick={retryAnalysis}
-                  className="px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-xs font-medium transition-colors text-emerald-300"
-                >
-                  Retry Evaluation
-                </button>
-                <button
-                  onClick={retryCurrentQuestion}
-                  className="px-4 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-medium transition-colors text-white"
-                >
-                  Record New Answer
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Configuration Flow */}
+      {/* Main Container */}
+      <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+        {/* ============================================================== */}
+        {/* VIEW 1: CONFIGURATION / ONBOARDING SCREEN                       */}
+        {/* ============================================================== */}
         {appState === "CONFIG" && (
           <InterviewConfig
             interviewType={interviewType}
@@ -289,44 +222,54 @@ export default function InterviewDashboard() {
         {appState === "PROCESSING" && !currentQuestion && (
           <div className="p-12 border border-white/[0.07] rounded-2xl bg-zinc-950/70 backdrop-blur-xl shadow-2xl flex flex-col items-center justify-center text-center space-y-5 animate-fadeIn">
             <div className="relative w-16 h-16 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20 animate-ping pointer-events-none" />
-              <div className="w-14 h-14 rounded-full border-2 border-emerald-500/30 border-t-emerald-400 animate-spin flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-emerald-400" />
+              <div className="absolute inset-0 rounded-full border-2 border-teal-500/20 animate-ping pointer-events-none" />
+              <div className="w-14 h-14 rounded-full border-2 border-teal-500/30 border-t-teal-400 animate-spin flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-teal-400" />
               </div>
             </div>
             <div className="space-y-1.5 max-w-md">
               <h2 className="text-lg font-semibold text-white tracking-tight">
-                Initializing AI Interview Session
+                Initializing Interview Session
               </h2>
               <p className="text-xs text-white/50 leading-relaxed">
-                Calibrating interview rubric, connecting real-time telemetry, and formulating your tailored opening question...
+                Formulating your calibrated opening question...
               </p>
             </div>
           </div>
         )}
 
         {/* ============================================================== */}
-        {/* BRITISH COUNCIL IELTS SPEAKING MODULE WORKFLOW                  */}
+        {/* ACTIVE INTERVIEW WORKFLOW                                       */}
         {/* ============================================================== */}
         {(appState === "READY" || appState === "PROCESSING") && currentQuestion && (
           <div className="space-y-6">
             {questionPhase === "SPEAKING" ? (
               /* ============================================================== */
-              /* STAGE 1: BRITISH COUNCIL EXAMINER SPEAKS FIRST                 */
+              /* STAGE 1: EXAMINER SPEAKS FIRST                                 */
               /* ============================================================== */
               <div className="max-w-4xl mx-auto space-y-5 animate-fadeIn">
                 {/* Active Examiner Speaking Banner */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-teal-500/[0.08] border border-teal-500/30 shadow-lg">
                   <div className="flex items-center gap-3">
-                    <span className="w-3 h-3 rounded-full bg-teal-400 animate-pulse shrink-0" />
+                    <span
+                      className={`w-3 h-3 rounded-full shrink-0 ${
+                        isAvatarSpeaking ? "bg-emerald-400 animate-pulse" : "bg-teal-400"
+                      }`}
+                    />
                     <div>
                       <div className="text-xs font-mono font-bold text-teal-300 uppercase tracking-wider flex items-center gap-2">
-                        <span>Interviewer Speaking</span>
+                        <span>
+                          {liveAvatar.state === "CONNECTING"
+                            ? "Connecting Video Stream"
+                            : isAvatarSpeaking
+                            ? "Interviewer Speaking"
+                            : "Interviewer Ready"}
+                        </span>
                         <span className="text-white/30">•</span>
                         <span className="text-white/70 font-normal">Zaira</span>
                       </div>
                       <p className="text-xs text-zinc-300 mt-0.5">
-                        Please listen attentively. As soon as Zaira concludes, your answer recording will begin.
+                        Please listen attentively. When Zaira finishes, your microphone will open for your response.
                       </p>
                     </div>
                   </div>
@@ -343,12 +286,10 @@ export default function InterviewDashboard() {
                 {/* Hero Examiner Stage */}
                 <InterviewerAvatar
                   mode="hero"
-                  isSpeaking={liveAvatar.isConfigured ? liveAvatar.state === "SPEAKING" : true}
+                  isSpeaking={isAvatarSpeaking}
                   isThinking={false}
                   onSkip={handleStopSpeaking}
-                  onSpeechEnd={liveAvatar.isConfigured ? handleLiveSpeechEnd : handleAvatarSpeechEnd}
-                  audioBlob={liveAvatar.isConfigured ? null : questionAudioBlob}
-                  currentWord={liveAvatar.isConfigured ? undefined : activeWord}
+                  onSpeechEnd={handleSpeechConcluded}
                   questionId={currentQuestion.id}
                   liveVideoRef={liveAvatar.attachVideo}
                   isLiveAvatarConnected={liveAvatar.state === "CONNECTED" || liveAvatar.state === "SPEAKING"}
@@ -356,6 +297,7 @@ export default function InterviewDashboard() {
                   liveAvatarState={liveAvatar.state}
                   statusMessage={liveAvatar.statusMessage}
                   hasActiveStream={liveAvatar.hasActiveStream}
+                  onReconnect={() => liveAvatar.connect()}
                 />
 
                 {/* Spoken Question Text Subtitle Card */}
@@ -367,11 +309,6 @@ export default function InterviewDashboard() {
                   <h2 className="text-lg md:text-xl font-medium leading-relaxed text-white max-w-2xl mx-auto">
                     &ldquo;{currentQuestion.question_text}&rdquo;
                   </h2>
-                  {speechFailed && (
-                    <p className="text-xs text-amber-400/90 pt-1">
-                      Note: Audio playback was blocked by browser. You can read the question prompt above and click &apos;I&apos;m Ready to Answer&apos;.
-                    </p>
-                  )}
                 </div>
               </div>
             ) : (
@@ -405,7 +342,7 @@ export default function InterviewDashboard() {
                       aria-label="Replay examiner question"
                     >
                       <Volume2 className="w-3.5 h-3.5 text-teal-400" />
-                      <span>Replay Examiner Voice</span>
+                      <span>Replay Question Voice</span>
                     </button>
                   </div>
 
@@ -437,14 +374,14 @@ export default function InterviewDashboard() {
                     />
                   </div>
 
-                  {/* Right Column (4 cols): Attentive British Council Examiner */}
+                  {/* Right Column (4 cols): Attentive Examiner */}
                   <div className="lg:col-span-4 space-y-4">
                     <InterviewerAvatar
                       mode="compact"
-                      isSpeaking={liveAvatar.isConfigured ? liveAvatar.state === "SPEAKING" : false}
+                      isSpeaking={isAvatarSpeaking}
                       isThinking={appState === "PROCESSING"}
                       onSkip={handleStopSpeaking}
-                      audioBlob={null}
+                      onSpeechEnd={handleSpeechConcluded}
                       questionId={currentQuestion.id}
                       liveVideoRef={liveAvatar.attachVideo}
                       isLiveAvatarConnected={liveAvatar.state === "CONNECTED" || liveAvatar.state === "SPEAKING"}
@@ -452,16 +389,17 @@ export default function InterviewDashboard() {
                       liveAvatarState={liveAvatar.state}
                       statusMessage={liveAvatar.statusMessage}
                       hasActiveStream={liveAvatar.hasActiveStream}
+                      onReconnect={() => liveAvatar.connect()}
                     />
 
                     {/* Examiner Protocol Card */}
                     <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-2 text-xs">
                       <div className="font-semibold text-white flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-teal-400" />
-                        <span>Evaluation In Progress</span>
+                        <span>Adaptive Rubric Evaluation</span>
                       </div>
                       <p className="text-zinc-400 leading-relaxed text-[11px]">
-                        Zaira is listening to your answer. Your speech will be evaluated on technical depth, fluency, lexical precision, and logical structure.
+                        Speak clearly and structure your explanation logically. Zaira evaluates factual depth, practical context, and clarity.
                       </p>
                     </div>
                   </div>
@@ -471,7 +409,9 @@ export default function InterviewDashboard() {
           </div>
         )}
 
-        {/* Answer Result View — Evaluation Report */}
+        {/* ============================================================== */}
+        {/* VIEW 3: STRUCTURED RUBRIC RESULT MODAL / PANEL                  */}
+        {/* ============================================================== */}
         {appState === "ANSWER_RESULT" && lastAnswerResult && (
           <EvaluationPanel
             lastAnswerResult={lastAnswerResult}
@@ -482,11 +422,16 @@ export default function InterviewDashboard() {
           />
         )}
 
-        {/* Interview Completed View */}
+        {/* ============================================================== */}
+        {/* VIEW 4: FINAL INTERVIEW COMPLETED REPORT CARD                   */}
+        {/* ============================================================== */}
         {appState === "COMPLETED" && (
-          <InterviewCompleted sessionId={sessionId} onReset={handleReset} />
+          <InterviewCompleted
+            sessionId={sessionId}
+            onReset={handleReset}
+          />
         )}
-      </div>
+      </main>
     </div>
   );
 }

@@ -4,22 +4,37 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Question, fetchQuestionAudio } from "../lib/interviewApi";
 import { QuestionSpeaker } from "../lib/speechSynthesis";
 
+interface UseAvatarVoiceOptions {
+  onSpeechStart?: () => void;
+  onSpeechEnd?: () => void;
+}
+
 export function useAvatarVoice(
-  currentQuestion: Question | null,
-  isReadyState: boolean
+  _currentQuestion?: Question | null,
+  _autoSpeak: boolean = false,
+  options: UseAvatarVoiceOptions = {}
 ) {
-  const [questionPhase, setQuestionPhase] = useState<"SPEAKING" | "READY_TO_ANSWER">("SPEAKING");
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [questionPhase, setQuestionPhase] = useState<"SPEAKING" | "READY_TO_ANSWER">("READY_TO_ANSWER");
   const [speechFailed, setSpeechFailed] = useState<boolean>(false);
   const [activeWord, setActiveWord] = useState<string>("");
-  const [questionAudioBlob, setQuestionAudioBlob] = useState<Blob | null>(null);
 
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const speakerRef = useRef<QuestionSpeaker | null>(null);
-  const lastSpokenQuestionIdRef = useRef<string | null>(null);
+  const currentBlobUrlRef = useRef<string | null>(null);
 
   // Initialize browser speech synthesis speaker on mount
   useEffect(() => {
     speakerRef.current = new QuestionSpeaker();
     return () => {
+      if (activeAudioRef.current) {
+        activeAudioRef.current.pause();
+        activeAudioRef.current = null;
+      }
+      if (currentBlobUrlRef.current) {
+        URL.revokeObjectURL(currentBlobUrlRef.current);
+        currentBlobUrlRef.current = null;
+      }
       if (speakerRef.current) {
         speakerRef.current.stop();
         speakerRef.current = null;
@@ -27,128 +42,190 @@ export function useAvatarVoice(
     };
   }, []);
 
+  const stopSpeaking = useCallback(() => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current.currentTime = 0;
+      activeAudioRef.current = null;
+    }
+    if (currentBlobUrlRef.current) {
+      URL.revokeObjectURL(currentBlobUrlRef.current);
+      currentBlobUrlRef.current = null;
+    }
+    if (speakerRef.current) {
+      speakerRef.current.stop();
+    }
+    setIsSpeaking(false);
+    setQuestionPhase("READY_TO_ANSWER");
+    setActiveWord("");
+  }, []);
+
+  // Authoritative single-channel speech articulation
+  const speakText = useCallback(
+    async (text: string): Promise<boolean> => {
+      if (!text || !text.trim()) return false;
+
+      // Stop any existing playback first to guarantee zero overlap
+      stopSpeaking();
+
+      setIsSpeaking(true);
+      setQuestionPhase("SPEAKING");
+      setSpeechFailed(false);
+      options.onSpeechStart?.();
+
+      try {
+        // 1. Fetch Edge-TTS neural speech audio
+        const blob = await fetchQuestionAudio(text);
+        if (blob) {
+          return new Promise<boolean>((resolve) => {
+            const url = URL.createObjectURL(blob);
+            currentBlobUrlRef.current = url;
+            const audio = new Audio(url);
+            activeAudioRef.current = audio;
+
+            audio.onplay = () => {
+              setIsSpeaking(true);
+              setQuestionPhase("SPEAKING");
+            };
+
+            audio.onended = () => {
+              if (currentBlobUrlRef.current) {
+                URL.revokeObjectURL(currentBlobUrlRef.current);
+                currentBlobUrlRef.current = null;
+              }
+              activeAudioRef.current = null;
+              setIsSpeaking(false);
+              setQuestionPhase("READY_TO_ANSWER");
+              options.onSpeechEnd?.();
+              resolve(true);
+            };
+
+            audio.onerror = (err) => {
+              console.warn("[AvatarVoice] Audio element playback error:", err);
+              if (currentBlobUrlRef.current) {
+                URL.revokeObjectURL(currentBlobUrlRef.current);
+                currentBlobUrlRef.current = null;
+              }
+              activeAudioRef.current = null;
+              setIsSpeaking(false);
+              setQuestionPhase("READY_TO_ANSWER");
+              setSpeechFailed(true);
+              options.onSpeechEnd?.();
+              resolve(false);
+            };
+
+            audio.play().catch((playErr) => {
+              console.warn("[AvatarVoice] Audio autoplay prevented:", playErr);
+              // Fall back to browser SpeechSynthesis
+              if (speakerRef.current && speakerRef.current.isAvailable()) {
+                speakerRef.current.speak(
+                  text,
+                  () => {
+                    setIsSpeaking(true);
+                    setQuestionPhase("SPEAKING");
+                  },
+                  () => {
+                    setIsSpeaking(false);
+                    setQuestionPhase("READY_TO_ANSWER");
+                    options.onSpeechEnd?.();
+                    resolve(true);
+                  },
+                  () => {
+                    setIsSpeaking(false);
+                    setQuestionPhase("READY_TO_ANSWER");
+                    setSpeechFailed(true);
+                    options.onSpeechEnd?.();
+                    resolve(false);
+                  }
+                );
+              } else {
+                setIsSpeaking(false);
+                setQuestionPhase("READY_TO_ANSWER");
+                setSpeechFailed(true);
+                options.onSpeechEnd?.();
+                resolve(false);
+              }
+            });
+          });
+        }
+
+        // 2. Fallback: Browser SpeechSynthesis
+        if (speakerRef.current && speakerRef.current.isAvailable()) {
+          return new Promise<boolean>((resolve) => {
+            speakerRef.current?.speak(
+              text,
+              () => {
+                setIsSpeaking(true);
+                setQuestionPhase("SPEAKING");
+              },
+              () => {
+                setIsSpeaking(false);
+                setQuestionPhase("READY_TO_ANSWER");
+                options.onSpeechEnd?.();
+                resolve(true);
+              },
+              () => {
+                setIsSpeaking(false);
+                setQuestionPhase("READY_TO_ANSWER");
+                setSpeechFailed(true);
+                options.onSpeechEnd?.();
+                resolve(false);
+              },
+              (_charIndex, _charLength, word) => {
+                setActiveWord(word);
+              }
+            );
+          });
+        }
+
+        // No audio player available
+        setIsSpeaking(false);
+        setQuestionPhase("READY_TO_ANSWER");
+        setSpeechFailed(true);
+        options.onSpeechEnd?.();
+        return false;
+      } catch (err) {
+        console.warn("[AvatarVoice] Speech articulation error:", err);
+        setIsSpeaking(false);
+        setQuestionPhase("READY_TO_ANSWER");
+        setSpeechFailed(true);
+        options.onSpeechEnd?.();
+        return false;
+      }
+    },
+    [stopSpeaking, options]
+  );
+
+  const speakQuestion = useCallback(
+    async (question: Question): Promise<boolean> => {
+      return speakText(question.question_text);
+    },
+    [speakText]
+  );
+
   const handleAvatarSpeechEnd = useCallback(() => {
     setActiveWord("");
+    setIsSpeaking(false);
     setQuestionPhase("READY_TO_ANSWER");
   }, []);
-
-  const stopSpeaking = useCallback(() => {
-    if (speakerRef.current) {
-      speakerRef.current.stop();
-    }
-    setQuestionAudioBlob(null);
-    setActiveWord("");
-    setQuestionPhase("READY_TO_ANSWER");
-  }, []);
-
-  const speakQuestion = useCallback(async (question: Question) => {
-    setQuestionPhase("SPEAKING");
-    setSpeechFailed(false);
-    setActiveWord("");
-
-    // Attempt to fetch cached neural audio via Edge-TTS
-    const blob = await fetchQuestionAudio(question.question_text);
-    if (blob) {
-      setQuestionAudioBlob(blob);
-      return;
-    }
-
-    // Fallback: browser SpeechSynthesis
-    setQuestionAudioBlob(null);
-    if (!speakerRef.current || !speakerRef.current.isAvailable()) {
-      setSpeechFailed(true);
-      setActiveWord("");
-      setQuestionPhase("READY_TO_ANSWER");
-      return;
-    }
-
-    speakerRef.current.speak(
-      question.question_text,
-      () => {
-        setQuestionPhase("SPEAKING");
-      },
-      () => {
-        setActiveWord("");
-        setQuestionPhase("READY_TO_ANSWER");
-      },
-      (err: unknown) => {
-        console.warn("Speech synthesis playback error / fallback:", err);
-        setSpeechFailed(true);
-        setActiveWord("");
-        setQuestionPhase("READY_TO_ANSWER");
-      },
-      (_charIndex, _charLength, word) => {
-        setActiveWord(word);
-      }
-    );
-  }, []);
-
-  const replayQuestion = useCallback(() => {
-    if (!currentQuestion) return;
-    if (speakerRef.current) {
-      speakerRef.current.stop();
-    }
-    setActiveWord("");
-    setQuestionPhase("SPEAKING");
-    setSpeechFailed(false);
-
-    // Unlock browser AudioContext and HTMLAudioElement during user click gesture
-    if (typeof window !== "undefined") {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        new AudioCtx().resume().catch(() => {});
-      }
-      try {
-        const primeAudio = new Audio();
-        primeAudio.src =
-          "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-        primeAudio.volume = 0.01;
-        primeAudio.play().catch(() => {});
-      } catch {
-        // ignore
-      }
-    }
-
-    if (questionAudioBlob) {
-      const freshBlob = questionAudioBlob.slice();
-      setQuestionAudioBlob(freshBlob);
-    } else {
-      speakQuestion(currentQuestion);
-    }
-  }, [currentQuestion, questionAudioBlob, speakQuestion]);
-
-  // Automatically speak new questions exactly once when entering READY state
-  useEffect(() => {
-    if (isReadyState && currentQuestion) {
-      if (lastSpokenQuestionIdRef.current !== currentQuestion.id) {
-        lastSpokenQuestionIdRef.current = currentQuestion.id;
-        speakQuestion(currentQuestion);
-      }
-    }
-  }, [isReadyState, currentQuestion, speakQuestion]);
 
   const resetVoiceState = useCallback(() => {
-    if (speakerRef.current) {
-      speakerRef.current.stop();
-    }
-    setActiveWord("");
-    lastSpokenQuestionIdRef.current = null;
+    stopSpeaking();
     setSpeechFailed(false);
-    setQuestionPhase("SPEAKING");
-    setQuestionAudioBlob(null);
-  }, []);
+    setActiveWord("");
+    setQuestionPhase("READY_TO_ANSWER");
+  }, [stopSpeaking]);
 
   return {
+    isSpeaking,
     questionPhase,
     setQuestionPhase,
     speechFailed,
     activeWord,
-    questionAudioBlob,
+    questionAudioBlob: null,
+    speakText,
     speakQuestion,
     stopSpeaking,
-    replayQuestion,
     handleAvatarSpeechEnd,
     resetVoiceState,
   };

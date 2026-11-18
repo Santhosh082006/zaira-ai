@@ -141,9 +141,9 @@ export function AudioRecorder({
             </>
           ) : (
             <>
-              <div className="w-2 h-2 rounded-full bg-emerald-400 tl-animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-zinc-400" />
               <span className="text-xs font-mono font-semibold text-zinc-300 tracking-wider">
-                {hasCamera ? "CAMERA & MIC ACTIVE" : "MIC ACTIVE"}
+                {hasCamera ? "CAMERA & MIC READY" : "MIC READY"}
               </span>
             </>
           )}

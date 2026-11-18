@@ -16,6 +16,25 @@ export type LiveAvatarState =
   | "ERROR"
   | "UNCONFIGURED";
 
+export interface LiveAvatarDiagnostics {
+  tokenStatus: "idle" | "requesting" | "available" | "error" | "unconfigured";
+  sessionStatus: "idle" | "connecting" | "connected" | "disconnected" | "error";
+  webrtcConnectionState: string;
+  iceConnectionState: string;
+  remoteVideoReceived: boolean;
+  remoteAudioReceived: boolean;
+  videoTrackReadyState: string;
+  videoTrackMuted: boolean;
+  srcObjectAttached: boolean;
+  videoElementWidth: number;
+  videoElementHeight: number;
+  videoPlayStatus: "idle" | "playing" | "paused" | "failed";
+  lastError: string | null;
+  wsConnected: boolean;
+  activeTracksCount: number;
+  participantIdentity: string | null;
+}
+
 interface UseLiveAvatarOptions {
   onSpeechStart?: () => void;
   onSpeechEnd?: () => void;
@@ -33,6 +52,25 @@ export function useLiveAvatar({
   const [avatarId, setAvatarId] = useState<string | null>(null);
   const [hasActiveStream, setHasActiveStream] = useState<boolean>(false);
 
+  const [diagnostics, setDiagnostics] = useState<LiveAvatarDiagnostics>({
+    tokenStatus: "idle",
+    sessionStatus: "idle",
+    webrtcConnectionState: "disconnected",
+    iceConnectionState: "new",
+    remoteVideoReceived: false,
+    remoteAudioReceived: false,
+    videoTrackReadyState: "none",
+    videoTrackMuted: false,
+    srcObjectAttached: false,
+    videoElementWidth: 0,
+    videoElementHeight: 0,
+    videoPlayStatus: "idle",
+    lastError: null,
+    wsConnected: false,
+    activeTracksCount: 0,
+    participantIdentity: null,
+  });
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<any>(null);
   const connectingPromiseRef = useRef<Promise<boolean> | null>(null);
@@ -40,48 +78,131 @@ export function useLiveAvatar({
   const cachedTokenRef = useRef<string | null>(null);
   const currentEventIdRef = useRef<string | null>(null);
 
-  // Dynamic attach callback to support video elements mounted at any time
-  const attachVideo = useCallback((node: HTMLVideoElement | null) => {
-    videoRef.current = node;
-    if (!node) {
-      console.log("[LiveAvatar] Video element detached/unmounted");
-      return;
-    }
+  // Direct WebRTC track references to bypass SDK participant ID filter bugs
+  const remoteVideoTrackRef = useRef<any>(null);
+  const remoteAudioTrackRef = useRef<any>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
-    console.log("[LiveAvatar] Video element mounted, ready for WebRTC attachment");
-    node.playsInline = true;
+  // Safely attach remote tracks and stream to whatever video element is currently mounted
+  const bindStreamToElement = useCallback((node: HTMLVideoElement) => {
+    if (!node) return;
 
-    // Track when real video frames actually arrive and render
-    node.onloadedmetadata = () => {
-      console.log(`[LiveAvatar] Video metadata loaded: ${node.videoWidth}x${node.videoHeight}`);
-      if (node.videoWidth > 0) {
-        setHasActiveStream(true);
+    try {
+      node.playsInline = true;
+      node.autoplay = true;
+
+      // 1. Direct LiveKit track attachment
+      if (remoteVideoTrackRef.current && typeof remoteVideoTrackRef.current.attach === "function") {
+        try {
+          remoteVideoTrackRef.current.attach(node);
+        } catch (e) {
+          console.warn("[LiveAvatar] Video track direct attach notice:", e);
+        }
       }
-    };
 
-    node.onplaying = () => {
-      console.log("[LiveAvatar] Video element is playing received WebRTC stream");
-      setHasActiveStream(true);
-    };
+      if (remoteAudioTrackRef.current && typeof remoteAudioTrackRef.current.attach === "function") {
+        try {
+          remoteAudioTrackRef.current.attach(node);
+        } catch (e) {
+          console.warn("[LiveAvatar] Audio track direct attach notice:", e);
+        }
+      }
 
-    // If session and stream are already active, attach immediately
-    if (sessionRef.current && streamReadyRef.current) {
-      try {
-        console.log("[LiveAvatar] Attaching video element to existing active WebRTC stream");
-        sessionRef.current.attach(node);
-        node.play().catch((err) => {
-          console.log("[LiveAvatar] Autoplay caught (will play on interaction):", err);
+      // 2. Ensure MediaStream is assigned to srcObject
+      if (mediaStreamRef.current && mediaStreamRef.current.getTracks().length > 0) {
+        if (node.srcObject !== mediaStreamRef.current) {
+          node.srcObject = mediaStreamRef.current;
+        }
+      }
+
+      // 3. Trigger playback
+      node
+        .play()
+        .then(() => {
+          setDiagnostics((d) => ({
+            ...d,
+            videoPlayStatus: "playing",
+            srcObjectAttached: !!node.srcObject,
+            videoElementWidth: node.videoWidth,
+            videoElementHeight: node.videoHeight,
+          }));
+          if (node.videoWidth > 0) {
+            setHasActiveStream(true);
+          }
+        })
+        .catch((playErr) => {
+          console.log("[LiveAvatar] Auto-play caught (will resume on candidate interaction):", playErr);
+          setDiagnostics((d) => ({
+            ...d,
+            videoPlayStatus: "paused",
+            lastError: playErr instanceof Error ? playErr.message : String(playErr),
+          }));
         });
-      } catch (err) {
-        console.warn("[LiveAvatar] attach notice:", err);
-      }
+    } catch (err) {
+      console.warn("[LiveAvatar] bindStreamToElement error:", err);
     }
   }, []);
+
+  // Dynamic attach callback to support video elements mounted at any time (hero or compact)
+  const attachVideo = useCallback(
+    (node: HTMLVideoElement | null) => {
+      videoRef.current = node;
+      if (!node) {
+        setDiagnostics((d) => ({ ...d, srcObjectAttached: false }));
+        return;
+      }
+
+      node.playsInline = true;
+      node.autoplay = true;
+
+      node.onloadedmetadata = () => {
+        setDiagnostics((d) => ({
+          ...d,
+          videoElementWidth: node.videoWidth,
+          videoElementHeight: node.videoHeight,
+          srcObjectAttached: !!node.srcObject,
+        }));
+        if (node.videoWidth > 0) {
+          setHasActiveStream(true);
+        }
+      };
+
+      node.onplaying = () => {
+        setDiagnostics((d) => ({
+          ...d,
+          videoPlayStatus: "playing",
+          videoElementWidth: node.videoWidth,
+          videoElementHeight: node.videoHeight,
+          srcObjectAttached: !!node.srcObject,
+        }));
+        setHasActiveStream(true);
+      };
+
+      node.onpause = () => {
+        setDiagnostics((d) => ({ ...d, videoPlayStatus: "paused" }));
+      };
+
+      node.onerror = () => {
+        setDiagnostics((d) => ({
+          ...d,
+          videoPlayStatus: "failed",
+          lastError: "Video element playback error",
+        }));
+      };
+
+      // If tracks are already subscribed from an active session, bind immediately
+      if (remoteVideoTrackRef.current || (mediaStreamRef.current && mediaStreamRef.current.getTracks().length > 0)) {
+        bindStreamToElement(node);
+      }
+    },
+    [bindStreamToElement]
+  );
 
   // Check backend credentials status on mount
   useEffect(() => {
     let isMounted = true;
     async function checkStatus() {
+      setDiagnostics((d) => ({ ...d, tokenStatus: "requesting" }));
       try {
         const tokenRes: AvatarTokenResponse = await getAvatarSessionToken();
         if (!isMounted) return;
@@ -89,15 +210,30 @@ export function useLiveAvatar({
           setIsConfigured(true);
           cachedTokenRef.current = tokenRes.token;
           setAvatarId(tokenRes.avatar_id || null);
-          setStatusMessage("HeyGen LiveAvatar Lite configured and ready.");
+          setStatusMessage("HeyGen LiveAvatar Lite configured.");
+          setDiagnostics((d) => ({
+            ...d,
+            tokenStatus: "available",
+          }));
         } else {
           setIsConfigured(false);
-          setStatusMessage(tokenRes.message || "HEYGEN_API_KEY not configured in .env");
+          setStatusMessage(tokenRes.message || "HeyGen credentials not configured in .env");
+          setDiagnostics((d) => ({
+            ...d,
+            tokenStatus: "unconfigured",
+            lastError: tokenRes.message || "Unconfigured",
+          }));
         }
       } catch (err: unknown) {
         if (!isMounted) return;
         setIsConfigured(false);
+        const msg = err instanceof Error ? err.message : String(err);
         setStatusMessage("Failed to reach avatar credentials endpoint.");
+        setDiagnostics((d) => ({
+          ...d,
+          tokenStatus: "error",
+          lastError: msg,
+        }));
       }
     }
     checkStatus();
@@ -140,7 +276,7 @@ export function useLiveAvatar({
     }
   }, []);
 
-  // Exit listening state
+  // Exit listening state prior to articulating speech
   const stopListening = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
@@ -209,10 +345,10 @@ export function useLiveAvatar({
     startListening();
   }, [startListening]);
 
-  // Connect to HeyGen LiveAvatar WebRTC session
+  // Connect to HeyGen LiveAvatar WebRTC session safely
   const connect = useCallback(async (): Promise<boolean> => {
-    // If already connected, return success immediately
-    if (sessionRef.current && (state === "CONNECTED" || state === "SPEAKING")) {
+    // If already connected and streaming, return success immediately
+    if (sessionRef.current && (state === "CONNECTED" || state === "SPEAKING") && hasActiveStream) {
       return true;
     }
 
@@ -223,21 +359,34 @@ export function useLiveAvatar({
 
     const connectionPromise = (async (): Promise<boolean> => {
       setState("CONNECTING");
-      setStatusMessage("Establishing real-time WebRTC LiveAvatar Lite session...");
+      setStatusMessage("Connecting interviewer live video...");
+      setDiagnostics((d) => ({
+        ...d,
+        sessionStatus: "connecting",
+        lastError: null,
+      }));
 
       try {
         // Reuse cached token or fetch fresh token
         let token = cachedTokenRef.current;
         if (!token) {
+          setDiagnostics((d) => ({ ...d, tokenStatus: "requesting" }));
           const tokenRes = await getAvatarSessionToken();
           if (!tokenRes.available || !tokenRes.token) {
-            setState("UNCONFIGURED");
+            setState("ERROR");
             setStatusMessage(tokenRes.message || "HeyGen credentials not configured in .env");
+            setDiagnostics((d) => ({
+              ...d,
+              tokenStatus: "unconfigured",
+              sessionStatus: "error",
+              lastError: tokenRes.message || "Missing credentials",
+            }));
             return false;
           }
           token = tokenRes.token;
           cachedTokenRef.current = token;
           setAvatarId(tokenRes.avatar_id || null);
+          setDiagnostics((d) => ({ ...d, tokenStatus: "available" }));
         }
 
         // Dynamically load @heygen/liveavatar-web-sdk in browser client
@@ -245,99 +394,204 @@ export function useLiveAvatar({
           "@heygen/liveavatar-web-sdk"
         );
 
-        console.log("[LiveAvatar] Instantiating LiveAvatarSession with token...");
         const session = new LiveAvatarSession(token, {
           autoKeepAlive: true,
-          voiceChat: {
-            defaultMuted: true, // Zaira handles candidate mic input independently
-          },
         });
 
         sessionRef.current = session;
 
-        // Bind WebRTC MediaStream to video element once stream is ready
-        session.on(SessionEvent.SESSION_STREAM_READY, () => {
-          console.log("[LiveAvatar] SESSION_STREAM_READY fired from HeyGen!");
-          streamReadyRef.current = true;
-          if (videoRef.current) {
-            try {
-              session.attach(videoRef.current);
-              videoRef.current.play().catch((err) => {
-                console.log("[LiveAvatar] Stream play triggered:", err);
-              });
+        // Initialize clean MediaStream for tracks
+        const stream = new MediaStream();
+        mediaStreamRef.current = stream;
+
+        // Extract internal LiveKit Room directly
+        const room = (session as any).room;
+        if (room) {
+          room.on("connectionStateChanged", (connState: string) => {
+            setDiagnostics((d) => ({
+              ...d,
+              webrtcConnectionState: String(connState),
+            }));
+          });
+
+          // Intercept TrackSubscribed for all participants
+          room.on("trackSubscribed", (track: any, _pub: any, participant: any) => {
+            const pId = participant?.identity || "unknown";
+            setDiagnostics((d) => ({
+              ...d,
+              participantIdentity: pId,
+            }));
+
+            if (track.kind === "video") {
+              remoteVideoTrackRef.current = track;
+              (session as any)._remoteVideoTrack = track;
+
+              if (track.mediaStreamTrack) {
+                stream.addTrack(track.mediaStreamTrack);
+                setDiagnostics((d) => ({
+                  ...d,
+                  remoteVideoReceived: true,
+                  videoTrackReadyState: track.mediaStreamTrack.readyState,
+                  videoTrackMuted: track.mediaStreamTrack.muted,
+                  activeTracksCount: stream.getTracks().length,
+                }));
+              }
+
+              streamReadyRef.current = true;
               setHasActiveStream(true);
-            } catch (attachErr) {
-              console.warn("[LiveAvatar] Video attach error on stream ready:", attachErr);
+              setState("CONNECTED");
+
+              if (videoRef.current) {
+                bindStreamToElement(videoRef.current);
+              }
+            } else if (track.kind === "audio") {
+              remoteAudioTrackRef.current = track;
+              (session as any)._remoteAudioTrack = track;
+
+              if (track.mediaStreamTrack) {
+                stream.addTrack(track.mediaStreamTrack);
+                setDiagnostics((d) => ({
+                  ...d,
+                  remoteAudioReceived: true,
+                  activeTracksCount: stream.getTracks().length,
+                }));
+              }
+
+              if (videoRef.current) {
+                bindStreamToElement(videoRef.current);
+              }
             }
+          });
+
+          room.on("trackUnsubscribed", (track: any) => {
+            if (track.mediaStreamTrack && stream) {
+              stream.removeTrack(track.mediaStreamTrack);
+            }
+            if (track.kind === "video") {
+              remoteVideoTrackRef.current = null;
+              setDiagnostics((d) => ({
+                ...d,
+                remoteVideoReceived: false,
+                activeTracksCount: stream.getTracks().length,
+              }));
+            } else if (track.kind === "audio") {
+              remoteAudioTrackRef.current = null;
+              setDiagnostics((d) => ({
+                ...d,
+                remoteAudioReceived: false,
+                activeTracksCount: stream.getTracks().length,
+              }));
+            }
+          });
+        }
+
+        // Standard SDK session stream ready event
+        session.on(SessionEvent.SESSION_STREAM_READY, () => {
+          streamReadyRef.current = true;
+          setHasActiveStream(true);
+          setState("CONNECTED");
+          if (videoRef.current) {
+            bindStreamToElement(videoRef.current);
           }
         });
 
-        // Track speech lifecycle events for turn-taking
+        // Speech turn-taking events
         session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
-          console.log("[LiveAvatar] Event: AVATAR_SPEAK_STARTED");
           setState("SPEAKING");
           onSpeechStart?.();
         });
 
         session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, () => {
-          console.log("[LiveAvatar] Event: AVATAR_SPEAK_ENDED");
           setState("CONNECTED");
-          // Smoothly enter attentive listening state so mouth stays naturally closed
           startListening();
           onSpeechEnd?.();
         });
 
-        session.on(SessionEvent.SESSION_DISCONNECTED, () => {
-          console.log("[LiveAvatar] Event: SESSION_DISCONNECTED");
+        session.on(SessionEvent.SESSION_DISCONNECTED, (_reason: any) => {
           setState("IDLE");
           setHasActiveStream(false);
           streamReadyRef.current = false;
           sessionRef.current = null;
+          setDiagnostics((d) => ({
+            ...d,
+            sessionStatus: "disconnected",
+            webrtcConnectionState: "disconnected",
+            srcObjectAttached: false,
+          }));
         });
 
-        // Start the WebRTC session
-        console.log("[LiveAvatar] Starting WebRTC session connection...");
-        await session.start();
-
-        // If video element is already mounted, attach immediately
-        if (videoRef.current && streamReadyRef.current) {
-          try {
-            session.attach(videoRef.current);
-            videoRef.current.play().catch(() => {});
-            setHasActiveStream(true);
-          } catch (e) {
-            console.warn("[LiveAvatar] Immediate video attach note:", e);
-          }
+        // Start the WebRTC session with safe error interception
+        try {
+          await session.start();
+        } catch (startErr: unknown) {
+          const errMsg = startErr instanceof Error ? startErr.message : String(startErr);
+          console.warn("[LiveAvatar] session.start failed:", errMsg);
+          setState("ERROR");
+          setStatusMessage(
+            errMsg.toLowerCase().includes("credit")
+              ? "LiveAvatar video credits unavailable. Using Neural Voice interviewer."
+              : `LiveAvatar notice: ${errMsg}`
+          );
+          setDiagnostics((d) => ({
+            ...d,
+            sessionStatus: "error",
+            lastError: errMsg,
+          }));
+          sessionRef.current = null;
+          onError?.(errMsg);
+          return false;
         }
 
-        // Monitor WebSocket events without silently swallowing errors
+        setDiagnostics((d) => ({
+          ...d,
+          sessionStatus: "connected",
+        }));
+
+        if (videoRef.current) {
+          bindStreamToElement(videoRef.current);
+        }
+
+        // Monitor WebSocket events
         const socket = (session as any)._sessionEventSocket as WebSocket | undefined;
         if (socket) {
+          setDiagnostics((d) => ({ ...d, wsConnected: socket.readyState === WebSocket.OPEN }));
+          socket.addEventListener("open", () => {
+            setDiagnostics((d) => ({ ...d, wsConnected: true }));
+          });
           socket.addEventListener("error", (ev) => {
-            console.error("[HeyGen LiveAvatar WebSocket Error]:", ev);
-            setStatusMessage("LiveAvatar WebSocket communication error.");
+            console.warn("[LiveAvatar WebSocket Error]:", ev);
+            setDiagnostics((d) => ({ ...d, lastError: "WebSocket communication error" }));
           });
           socket.addEventListener("close", (ev) => {
-            console.warn(`[HeyGen LiveAvatar WebSocket Closed]: code=${ev.code}, reason=${ev.reason}`);
+            setDiagnostics((d) => ({ ...d, wsConnected: false }));
           });
         }
 
         setState("CONNECTED");
-        setStatusMessage("LiveAvatar Lite connected over WebRTC.");
+        setStatusMessage("Interviewer video connected.");
 
-        // Start in listening / attentive idle state
+        // Start in attentive listening mode
         setTimeout(() => {
           startListening();
-        }, 400);
+        }, 200);
 
         return true;
       } catch (err: unknown) {
-        console.error("[LiveAvatar] Connection error:", err);
         const msg = err instanceof Error ? err.message : String(err);
+        console.warn("[LiveAvatar] Connection error:", msg);
         setState("ERROR");
-        setStatusMessage(`LiveAvatar connection failed: ${msg}`);
-        onError?.(msg);
+        setStatusMessage(
+          msg.toLowerCase().includes("credit")
+            ? "LiveAvatar video credits unavailable. Using Neural Voice interviewer."
+            : `LiveAvatar offline: ${msg}`
+        );
+        setDiagnostics((d) => ({
+          ...d,
+          sessionStatus: "error",
+          lastError: msg,
+        }));
         sessionRef.current = null;
+        onError?.(msg);
         return false;
       }
     })();
@@ -348,56 +602,40 @@ export function useLiveAvatar({
     } finally {
       connectingPromiseRef.current = null;
     }
-  }, [state, onSpeechStart, onSpeechEnd, onError, startListening]);
+  }, [state, hasActiveStream, onSpeechStart, onSpeechEnd, onError, startListening, bindStreamToElement]);
 
-  // Speak a question generated by Zaira's LLM via PCM 24k 16-bit mono chunks
+  // Speak a question generated by Zaira's LLM via direct PCM 24k base64 chunks
   const speakText = useCallback(
     async (text: string): Promise<boolean> => {
       if (!text || !text.trim()) return false;
 
       // 1. Fetch PCM 24k 16-bit mono base64 chunks from Zaira backend
-      console.log("[LiveAvatar] Fetching PCM 24k audio for text articulation...");
       const pcmData: PcmAudioResponse | null = await fetchQuestionPcmAudio(text);
       if (!pcmData || !pcmData.chunks || pcmData.chunks.length === 0) {
-        console.warn("[LiveAvatar] PCM 24k speech audio could not be synthesized.");
+        console.warn("[LiveAvatar] PCM speech audio could not be synthesized.");
         return false;
       }
 
-      // 2. Ensure LiveAvatar session is connected
+      // 2. Ensure LiveAvatar session is genuinely connected
       if (!sessionRef.current || (state !== "CONNECTED" && state !== "SPEAKING")) {
-        console.log("[LiveAvatar] Connecting session prior to speech...");
         const ok = await connect();
         if (!ok || !sessionRef.current) {
-          console.warn("[LiveAvatar] Cannot speak: Session connection failed.");
           return false;
         }
       }
 
       const session = sessionRef.current;
+      const socket = (session as any)._sessionEventSocket as WebSocket | undefined;
+
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        console.warn("[LiveAvatar] WebSocket not open for speech streaming.");
+        return false;
+      }
 
       // 3. Exit listening state prior to articulating speech
       stopListening();
 
-      // 4. Send audio: first try session.repeatAudio if available
-      try {
-        if (typeof session.repeatAudio === "function") {
-          // Combine chunks or pass first full audio
-          const fullAudio = pcmData.chunks.join("");
-          session.repeatAudio(fullAudio);
-          setState("SPEAKING");
-          return true;
-        }
-      } catch (err) {
-        console.log("[LiveAvatar] repeatAudio fallback to socket streaming:", err);
-      }
-
-      // 5. Fallback: Stream chunks directly over WebSocket
-      const socket = (session as any)._sessionEventSocket as WebSocket | undefined;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        console.warn("[LiveAvatar] WebSocket is not open for audio streaming.");
-        return false;
-      }
-
+      // 4. Send chunks directly through the session WebSocket (bypasses SDK repeatAudio base64-slicing bug)
       const eventId =
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
@@ -423,19 +661,26 @@ export function useLiveAvatar({
         );
 
         setState("SPEAKING");
+        onSpeechStart?.();
         return true;
       } catch (err: unknown) {
-        console.error("[LiveAvatar] Error streaming speech chunks to LiveAvatar:", err);
+        console.warn("[LiveAvatar] Error streaming speech chunks to LiveAvatar:", err);
         return false;
       }
     },
-    [connect, state, stopListening]
+    [connect, state, stopListening, onSpeechStart]
   );
 
   // Gracefully stop session and release WebRTC tracks
   const disconnect = useCallback(async () => {
     streamReadyRef.current = false;
     setHasActiveStream(false);
+    remoteVideoTrackRef.current = null;
+    remoteAudioTrackRef.current = null;
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
     if (sessionRef.current) {
       try {
         await sessionRef.current.stop();
@@ -445,6 +690,12 @@ export function useLiveAvatar({
       sessionRef.current = null;
     }
     setState("IDLE");
+    setDiagnostics((d) => ({
+      ...d,
+      sessionStatus: "disconnected",
+      webrtcConnectionState: "disconnected",
+      srcObjectAttached: false,
+    }));
   }, []);
 
   // Cleanup on unmount
@@ -454,7 +705,6 @@ export function useLiveAvatar({
       setHasActiveStream(false);
       if (sessionRef.current) {
         sessionRef.current.stop().catch(() => {});
-        sessionRef.current = null;
       }
     };
   }, []);
@@ -465,6 +715,7 @@ export function useLiveAvatar({
     avatarId,
     statusMessage,
     hasActiveStream,
+    diagnostics,
     videoRef,
     attachVideo,
     connect,

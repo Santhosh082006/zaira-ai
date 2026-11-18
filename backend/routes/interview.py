@@ -846,12 +846,21 @@ async def generate_speech_audio(req: TTSRequest):
                 audio_bytes = await f.read()
 
         if not audio_bytes:
-            # ── Synthesise via Edge-TTS with conversational prosody ──────────
-            communicate = edge_tts.Communicate(spoken_text, voice, rate=rate, pitch=pitch)
+            # ── Synthesise via Edge-TTS with conversational prosody & retry ──────────
             audio_chunks = []
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_chunks.append(chunk["data"])
+            for attempt in range(2):
+                try:
+                    communicate = edge_tts.Communicate(spoken_text, voice, rate=rate, pitch=pitch)
+                    audio_chunks = []
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            audio_chunks.append(chunk["data"])
+                    if audio_chunks:
+                        break
+                except Exception as tts_err:
+                    if attempt == 1:
+                        raise tts_err
+                    await asyncio.sleep(0.5)
                     
             audio_bytes = b"".join(audio_chunks)
             if not audio_bytes:
