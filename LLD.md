@@ -1,348 +1,275 @@
 # Low-Level Design (LLD)
 
-## Project: TruthLens AI & Zaira AI Interviewer Suite
-**Document Version:** 1.0.0  
-**Status:** Approved  
-**Author:** Engineering & Product Team  
-**Date:** November 2026  
-**Repository:** [https://github.com/Santhosh082006/zaira-ai](https://github.com/Santhosh082006/zaira-ai)
+## Project Title
+**Zaira AI — Adaptive AI Interviewer**
 
 ---
 
-## 1. Class Diagrams & Object-Oriented Models
+## 1. Database Schema / Data Models
 
-```mermaid
-classDiagram
-    class InterviewSession {
-        +str session_id
-        +str interview_type
-        +str interview_level
-        +List~str~ assessment_goals
-        +Optional~str~ technical_domain
-        +List~Question~ question_history
-        +List~AnswerRecord~ answer_history
-        +Dict~str, CompetencyScore~ competency_scores
-        +str completion_status
-        +datetime created_at
-        +add_question(question: Question) void
-        +record_answer(answer: AnswerRecord) void
-        +compute_overall_score() float
-    }
+Zaira AI uses in-memory session storage with JSON file persistence. Below are the core data models.
 
-    class Question {
-        +str id
-        +str question_text
-        +str question_type
-        +int difficulty
-        +List~str~ topics
-        +List~str~ expected_concepts
-        +Dict rubric_criteria
-    }
+### InterviewSession
 
-    class AnswerRecord {
-        +str answer_id
-        +str question_id
-        +str transcript
-        +float overall_answer_quality
-        +StructuredEvaluationData structured_eval
-        +Dict speech_metrics
-        +Dict visual_metrics
-    }
+| Field | Type | Description |
+|---|---|---|
+| session_id | string | Unique UUID session identifier |
+| interview_type | string | "technical", "behavioral", "academic_viva" |
+| interview_level | string | "junior", "intermediate", "senior", "principal" |
+| technical_domain | string | "Python", "Full Stack Web", "Data Structures", etc. |
+| assessment_goals | string[] | ["COMMUNICATION", "PERFORMANCE", "TECHNICAL_DEPTH"] |
+| question_history | Question[] | List of all questions asked |
+| answer_history | AnswerRecord[] | List of all evaluated answers |
+| competency_scores | object | Competency dimension → score mapping |
+| completion_status | string | "in_progress", "completed" |
+| created_at | datetime | Session creation timestamp |
 
-    class StructuredEvaluationData {
-        +str evaluation_status
-        +float overall_quality
-        +float relevance
-        +float clarity
-        +float structure
-        +float evidence_quality
-        +float completeness
-        +float technical_accuracy
-        +List~RubricCriterion~ rubric_criteria
-        +List~ActionableFinding~ actionable_findings
-        +List~str~ strengths
-        +List~str~ areas_to_improve
-    }
+### Question
 
-    class RubricCriterion {
-        +str criterion_id
-        +str criterion_name
-        +float max_marks
-        +float marks_awarded
-        +float deduction
-        +str status
-        +Optional~str~ evidence_quote
-        +Optional~str~ reason_for_deduction
-        +Optional~str~ improvement_advice
-    }
+| Field | Type | Description |
+|---|---|---|
+| id | string | Unique question identifier (e.g., "q_py_001") |
+| question_text | string | The full question text |
+| question_type | string | "technical", "behavioral", "followup" |
+| difficulty | int | 1 (Junior) to 4 (Principal) |
+| topics | string[] | Related topics (e.g., ["Python", "GIL"]) |
+| expected_concepts | string[] | Concepts a good answer should cover |
 
-    class ActionableFinding {
-        +str finding
-        +str supporting_evidence
-        +str explanation
-        +str specific_correction
-        +Optional~str~ example_or_model_answer
-    }
+### AnswerRecord
 
-    class InterviewController {
-        +QuestionBank question_bank
-        +CompetencyMap competency_map
-        +AnswerEvaluator evaluator
-        +initialize_session(req: InterviewStartRequest) InterviewSession
-        +process_answer(session: InterviewSession, audio_file: bytes) AnswerSubmissionResponse
-        +select_next_question(session: InterviewSession) Optional~Question~
-        +should_conclude(session: InterviewSession) bool
-    }
+| Field | Type | Description |
+|---|---|---|
+| answer_id | string | Unique answer identifier |
+| question_id | string | Reference to the question answered |
+| transcript | string | Full transcribed text from Whisper |
+| overall_answer_quality | float | Score from 0.0 to 100.0 |
+| rubric_criteria | RubricCriterion[] | Detailed per-criterion scoring |
+| actionable_findings | ActionableFinding[] | Specific improvement suggestions |
+| strengths | string[] | Detected strong points |
+| areas_to_improve | string[] | Identified weaknesses |
 
-    InterviewSession "1" *-- "many" Question
-    InterviewSession "1" *-- "many" AnswerRecord
-    AnswerRecord "1" *-- "1" StructuredEvaluationData
-    StructuredEvaluationData "1" *-- "many" RubricCriterion
-    StructuredEvaluationData "1" *-- "many" ActionableFinding
-    InterviewController ..> InterviewSession : manages
-```
+### RubricCriterion
+
+| Field | Type | Description |
+|---|---|---|
+| criterion_name | string | "Technical Accuracy", "Clarity", etc. |
+| max_marks | float | Maximum possible score |
+| marks_awarded | float | Actual score given |
+| deduction | float | Points deducted |
+| evidence_quote | string | Exact quote from candidate's answer |
+| reason_for_deduction | string | Why points were deducted |
 
 ---
 
-## 2. Detailed REST API Specifications
+## 2. API Endpoints
 
 ### 2.1 Start Interview Session
-- **Endpoint**: `POST /api/interview/start`
-- **Request Body**:
+- **Method:** `POST`
+- **Endpoint:** `/api/interview/start`
+- **Request Body:**
   ```json
   {
     "interview_type": "technical",
     "interview_level": "intermediate",
     "assessment_goals": ["COMMUNICATION", "PERFORMANCE"],
-    "technical_domain": "Python",
-    "custom_goal": null,
-    "resume_text": null,
-    "job_description": null
+    "technical_domain": "Python"
   }
   ```
-- **Response** (`200 OK`):
+- **Response (200 OK):**
   ```json
   {
     "session_id": "sess_001c85f85f75",
     "current_question": {
       "id": "q_py_001",
-      "question_text": "Could you walk me through the Python GIL, how it influences multithreading, and when you would use multiprocessing or asyncio instead?",
-      "question_type": "technical",
+      "question_text": "Walk me through the Python GIL...",
       "difficulty": 2,
-      "topics": ["Python", "Concurrency", "GIL"]
+      "topics": ["Python", "Concurrency"]
     },
-    "interview_type": "technical",
-    "interview_level": "intermediate",
     "completion_status": "in_progress",
     "interview_progress": 0.15
   }
   ```
 
-### 2.2 Submit Candidate Media Answer
-- **Endpoint**: `POST /api/interview/{session_id}/answer/media`
-- **Content-Type**: `multipart/form-data`
-- **Form Fields**:
-  - `question_id`: `q_py_001`
-  - `file`: `audio.webm` (Binary audio/video payload)
-- **Response** (`200 OK`):
+### 2.2 Submit Answer (Audio)
+- **Method:** `POST`
+- **Endpoint:** `/api/interview/{session_id}/answer/media`
+- **Content-Type:** `multipart/form-data`
+- **Form Fields:** `question_id` (string), `file` (audio/webm binary)
+- **Response (200 OK):**
   ```json
   {
     "session_id": "sess_001c85f85f75",
-    "answer_id": "ans_9a12c8b7",
-    "processed_question_id": "q_py_001",
-    "transcript": "The Global Interpreter Lock ensures only one thread executes Python bytecode...",
+    "transcript": "The Global Interpreter Lock...",
     "overall_answer_quality": 85.0,
-    "detected_strengths": ["Clear explanation of GIL mutex mechanism", "Practical multiprocessing distinction"],
-    "detected_weaknesses": ["Omitted asyncio event loop single-threaded cooperative multitasking context"],
     "structured_evaluation": {
-      "evaluation_status": "success",
-      "overall_quality": 85.0,
-      "relevance": 90.0,
-      "clarity": 85.0,
-      "technical_accuracy": 88.0,
-      "rubric_criteria": [
-        {
-          "criterion_id": "gil_concept",
-          "criterion_name": "GIL Mechanism & Thread Safety",
-          "max_marks": 25.0,
-          "marks_awarded": 25.0,
-          "deduction": 0.0,
-          "status": "full_credit",
-          "evidence_quote": "The Global Interpreter Lock ensures only one thread executes Python bytecode..."
-        }
-      ],
-      "actionable_findings": [
-        {
-          "finding": "AsyncIO event loop mechanics omitted",
-          "supporting_evidence": "Candidate mentioned multiprocessing but did not detail asyncio.",
-          "explanation": "AsyncIO operates on a single thread using an event loop with non-blocking I/O.",
-          "specific_correction": "Mention that asyncio uses cooperative multitasking for I/O-bound concurrency."
-        }
-      ]
+      "rubric_criteria": [...],
+      "actionable_findings": [...],
+      "strengths": [...],
+      "areas_to_improve": [...]
     },
     "next_question": {
       "id": "q_py_followup_002",
-      "question_text": "Building on that, how does an asyncio event loop handle high-concurrency network calls without spawning multiple OS threads?",
+      "question_text": "How does asyncio handle concurrency...",
       "difficulty": 3
     },
-    "completion_status": "in_progress",
-    "interview_progress": 0.40
+    "completion_status": "in_progress"
   }
   ```
 
-### 2.3 Generate LiveAvatar Lite Session Token
-- **Endpoint**: `POST /api/interview/avatar/token`
-- **Headers**: Internal session token
-- **Response** (`200 OK`):
+### 2.3 Generate Avatar Session Token
+- **Method:** `POST`
+- **Endpoint:** `/api/interview/avatar/token`
+- **Response (200 OK):**
   ```json
   {
     "available": true,
-    "provider": "heygen_liveavatar",
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "session_id": "088efb78-e3ab-430c-ab54-8d4e20b00daf",
-    "avatar_id": "56c84371-a65c-4f11-83f5-afcf4ec48fb4",
-    "voice_id": "b1200469-775a-415b-bd67-8967797f6fcb",
-    "message": "LiveAvatar Lite session token generated successfully."
+    "token": "eyJhbGciOiJIUzI1NiIs...",
+    "session_id": "088efb78-e3ab-430c...",
+    "avatar_id": "56c84371-a65c-4f11...",
+    "voice_id": "b1200469-775a-415b..."
   }
   ```
 
-### 2.4 Synthesize Question Audio (PCM 24k)
-- **Endpoint**: `POST /api/interview/tts`
-- **Request Body**:
+### 2.4 Synthesize Question Audio
+- **Method:** `POST`
+- **Endpoint:** `/api/interview/tts`
+- **Request Body:**
   ```json
   {
-    "text": "Could you walk me through your journey in software engineering?",
-    "voice": "en-US-AvaNeural",
-    "rate": "-3%",
-    "conversational_flow": true,
+    "text": "Could you walk me through your journey?",
     "audio_format": "pcm24k"
   }
   ```
-- **Response** (`200 OK`):
+- **Response (200 OK):**
   ```json
   {
     "status": "success",
     "format": "pcm_s16le",
     "sample_rate": 24000,
     "channels": 1,
-    "duration_sec": 3.84,
-    "total_bytes": 184320,
-    "chunks": [
-      "<Base64 PCM Chunk 1 - 400ms>",
-      "<Base64 PCM Chunk 2 - 1000ms>",
-      "<Base64 PCM Chunk 3 - 1000ms>"
-    ]
+    "chunks": ["<base64_pcm_chunk_1>", "<base64_pcm_chunk_2>"]
   }
   ```
 
+### 2.5 Get Interview Report
+- **Method:** `GET`
+- **Endpoint:** `/api/interview/{session_id}/report`
+- **Response (200 OK):** Complete interview report with all scores, transcripts, and findings.
+
 ---
 
-## 3. WebSocket Protocol Specification
+## 3. WebSocket Protocol
 
-- **Path**: `ws://localhost:8000/api/ws/interview/{session_id}`
-- **Protocol**: JSON framed text messages
+- **Endpoint:** `ws://localhost:8000/api/ws/interview/{session_id}`
 
-### Client Messages to Server
+### Client → Server Messages
+
 | Type | Fields | Purpose |
-| :--- | :--- | :--- |
-| `live_transcript_chunk` | `text`, `is_final`, `duration_sec`, `word_count` | Candidate live speech stream from browser STT |
-| `heartbeat` | `timestamp` | Connection keepalive every 15s |
+|---|---|---|
+| `live_transcript_chunk` | text, is_final, duration_sec | Stream live candidate speech |
+| `heartbeat` | timestamp | Keep connection alive (every 15s) |
 
-### Server Messages to Client
-| Type | Fields | Description |
-| :--- | :--- | :--- |
-| `connected` | `session_id`, `status` | Acknowledges WebSocket channel binding |
-| `live_feedback` | `word_count`, `wpm`, `pacing_status`, `concepts_covered`, `coaching_hint` | Emitted every 250ms to drive on-screen feedback bars |
-| `question_ready` | `question` | Broadcasts new adaptive question |
-| `evaluation_streaming` | `stage`, `progress`, `message`, `thought_trace` | In-flight progress during deep LLM rubric scoring |
-| `interview_completed` | `session_id`, `report` | Signals session termination and triggers final report view |
+### Server → Client Messages
 
----
-
-## 4. Key Algorithms & Mathematical Formulations
-
-### 4.1 Acoustic Energy & Viseme Mapping Algorithm
-Real-time 60 FPS loop analyzing audio frequency bins from the Web Audio API:
-$$\text{Energy} = \min\left(1.0, \frac{\sum_{i=2}^{24} \text{FreqBin}[i]}{23 \times 255} \times 1.6\right)$$
-
-Viseme state selection:
-$$\text{Viseme} = \begin{cases} 
-0 \text{ (Resting Smile)}, & \text{Energy} < 0.08 \\
-1 \text{ (Soft Consonant)}, & 0.08 \le \text{Energy} < 0.25 \\
-2 \text{ (Active Vowel)}, & 0.25 \le \text{Energy} < 0.50 \\
-3 \text{ (Open Vowel)}, & 0.50 \le \text{Energy} < 0.75 \\
-4 \text{ (Rounded Vowel)}, & \text{Energy} \ge 0.75 
-\end{cases}$$
-
-### 4.2 Speech Pacing & Words Per Minute (WPM)
-Candidate pacing classification based on running transcript duration:
-$$\text{WPM} = \frac{\text{Total Words}}{\text{Speaking Time in Seconds}} \times 60$$
-
-$$\text{Pacing Status} = \begin{cases} 
-\text{"too\_slow"}, & \text{WPM} < 105 \\
-\text{"optimal"}, & 105 \le \text{WPM} \le 165 \\
-\text{"too\_fast"}, & \text{WPM} > 165 
-\end{cases}$$
-
-### 4.3 Adaptive Difficulty Transition Formula
-The next question's target difficulty $D_{t+1}$ adjusts based on previous question performance:
-$$D_{t+1} = \operatorname{clamp}\left(1, 4, D_t + \Delta D\right)$$
-$$\Delta D = \begin{cases} 
-+1, & \text{Score} \ge 85 \text{ and } D_t < 4 \\
-0, & 65 \le \text{Score} < 85 \\
--1, & \text{Score} < 65 \text{ and } D_t > 1 
-\end{cases}$$
-
-### 4.4 LiveAvatar Lite WebSocket Frame Protocol
-To articulate speech on the WebRTC stream:
-1. Client establishes WebSocket: `wss://webrtc-signaling.heygen.io/v2-alpha/interactive-avatar/session/{session_id}`.
-2. Sends event: `{"type": "agent.stop_listening", "event_id": "<uuid>"}`.
-3. Streams Base64 PCM 24k chunks sequentially:
-   `{"type": "agent.speak", "event_id": "<uuid>", "audio": "<base64_pcm>"}`.
-4. Delimits speech end: `{"type": "agent.speak_end", "event_id": "<uuid>"}`.
-5. Listens for server event: `{"type": "avatar.speak_ended"}`.
-6. Returns avatar to attentive state: `{"type": "agent.start_listening", "event_id": "<uuid>"}`.
+| Type | Fields | Purpose |
+|---|---|---|
+| `connected` | session_id, status | Confirm WebSocket connection |
+| `live_feedback` | wpm, pacing_status, coaching_hint | Real-time speaking feedback |
+| `question_ready` | question | New adaptive question available |
+| `evaluation_streaming` | stage, progress, message | Evaluation progress updates |
+| `interview_completed` | session_id, report | Session finished, final report |
 
 ---
 
-## 5. Directory Structure & File Map
+## 4. Component Architecture
 
-```text
-Truth-Lens-ai/
-├── PRD.md                      # Product Requirements Document
-├── HLD.md                      # High-Level Architecture Design
-├── LLD.md                      # Low-Level Engineering Specifications
-├── README.md                   # Setup, Quick Start & Overview
-├── requirements.txt            # Python Backend Dependencies
-├── .env.example                # Environment Variable Template
-├── backend/
-│   ├── api.py                  # FastAPI Application & Middlewares
-│   ├── routes/
-│   │   ├── interview.py        # Core REST Endpoints & PCM Generator
-│   │   └── interview_ws.py     # Real-Time WebSocket Streaming
-│   └── schemas/
-│       ├── interview.py        # Pydantic v2 Request/Response Contracts
-│       └── interview_ws.py     # WebSocket Framing Schemas
-├── core/
-│   ├── interview_controller.py # Adaptive Progression State Machine
-│   ├── interview_session.py    # Active Session Entity & Serialization
-│   ├── question_bank.py        # Question Catalog & Categorization
-│   └── competency_map.py       # Competency Matrix & Evidence Tracker
-├── services/
-│   ├── answer_evaluator_llm.py # Rubric Scoring Engine
-│   ├── speech_to_text.py       # OpenAI Whisper Integration
-│   └── llm_provider.py         # Multi-Provider Bridge (Ollama / Gemini / OpenRouter)
-└── frontend/
-    ├── src/components/
-    │   ├── InterviewDashboard.tsx  # Dynamic UI Controller
-    │   ├── InterviewerAvatar.tsx   # Live WebRTC & 2D Viseme Avatar
-    │   ├── AudioRecorder.tsx       # Live Speech Audio Capture
-    │   └── interview/
-    │       ├── InterviewConfig.tsx # Session Configuration Panel
-    │       ├── EvaluationPanel.tsx # Structured Rubric Results
-    │       └── InterviewCompleted.tsx # Holistic Final Audit Report
-    └── src/hooks/
-        ├── useLiveAvatar.ts        # WebRTC LiveKit & WebSocket Engine
-        ├── useAvatarVoice.ts       # Speech Prosody & Audio Queue
-        └── useInterviewSession.ts  # Session State & WebSocket Client
+### Frontend Components
+
 ```
+src/
+├── app/
+│   └── page.tsx                    # Main page routing
+├── components/
+│   ├── InterviewDashboard.tsx      # Root interview controller
+│   ├── InterviewerAvatar.tsx       # Avatar display (WebRTC / 2D)
+│   ├── AudioRecorder.tsx           # Microphone capture and display
+│   └── interview/
+│       ├── InterviewConfig.tsx     # Session setup form
+│       ├── EvaluationPanel.tsx     # Rubric results display
+│       └── InterviewCompleted.tsx  # Final report view
+├── hooks/
+│   ├── useLiveAvatar.ts            # HeyGen WebRTC lifecycle
+│   ├── useAvatarVoice.ts           # TTS audio playback
+│   └── useInterviewSession.ts     # Session state management
+└── lib/
+    ├── interviewApi.ts             # REST API client functions
+    └── interviewWebSocket.ts       # WebSocket client
+```
+
+### Backend Modules
+
+```
+backend/
+├── api.py                          # FastAPI app, CORS, middleware
+├── routes/
+│   ├── interview.py                # REST endpoints, TTS, avatar token
+│   └── interview_ws.py             # WebSocket handler
+└── schemas/
+    ├── interview.py                # Pydantic request/response models
+    └── interview_ws.py             # WebSocket message schemas
+
+core/
+├── interview_controller.py         # Adaptive state machine
+├── interview_session.py            # Session entity and storage
+├── question_bank.py                # Question catalog
+└── competency_map.py               # Competency tracking matrix
+
+services/
+├── answer_evaluator_llm.py         # LLM rubric scoring engine
+├── speech_to_text.py               # Whisper integration
+├── llm_provider.py                 # Multi-provider LLM bridge
+└── resume_parser.py                # Resume text extraction
+```
+
+---
+
+## 5. Key Algorithms
+
+### 5.1 Adaptive Difficulty Adjustment
+The next question difficulty adjusts based on the candidate's score:
+- Score ≥ 85 → Increase difficulty by 1 (max 4)
+- Score 65–84 → Keep same difficulty
+- Score < 65 → Decrease difficulty by 1 (min 1)
+
+### 5.2 Words Per Minute (WPM) Calculation
+```
+WPM = (Total Words / Speaking Time in Seconds) × 60
+```
+- WPM < 105 → "too_slow"
+- 105 ≤ WPM ≤ 165 → "optimal"
+- WPM > 165 → "too_fast"
+
+### 5.3 Interview Stopping Conditions
+The interview ends when any of these conditions are met:
+1. All target competency dimensions have been assessed with sufficient evidence.
+2. The maximum question count (5–7 questions) is reached.
+3. The candidate requests to end the session.
+
+### 5.4 Avatar Speech Pipeline
+1. Question text is formatted with conversational pauses and phonetic expansions.
+2. Edge-TTS generates speech audio (en-US-AvaNeural voice).
+3. FFmpeg converts audio to raw PCM (16-bit, 24kHz, mono).
+4. PCM audio is base64-encoded and sent to HeyGen WebSocket for lip-synced video rendering.
+5. When speech ends, avatar transitions to a natural listening posture.
+
+---
+
+## 6. Error Handling
+
+| Scenario | Handling |
+|---|---|
+| HeyGen API unavailable | Fallback to local 2D lip-sync engine with Edge-TTS audio |
+| LLM provider timeout | Retry with fallback provider (Ollama → Gemini → OpenRouter) |
+| Whisper transcription failure | Return error to candidate with option to re-record |
+| WebSocket disconnect | Auto-reconnect with exponential backoff |
+| Empty candidate audio | Prompt candidate to speak louder or check microphone |
