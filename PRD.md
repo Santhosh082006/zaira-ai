@@ -3,6 +3,11 @@
 ## Project Title
 **Zaira AI — Adaptive AI Interviewer**
 
+**Author:** Santhosh (santhoshgg08@gmail.com)  
+**Repository:** [https://github.com/Santhosh082006/zaira-ai](https://github.com/Santhosh082006/zaira-ai)  
+**Document Version:** 1.0.0  
+**Status:** Approved  
+
 ## Project Overview
 Zaira AI is an intelligent, real-time AI-powered interview and viva assessment platform. It conducts spoken technical interviews with a photorealistic virtual interviewer avatar, dynamically adapts questions based on the candidate's answers, provides live speech feedback, and generates structured evaluation reports with evidence-grounded scores.
 

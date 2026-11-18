@@ -1,5 +1,8 @@
 # TruthLens AI & Zaira AI Interviewer Suite
 
+**Author:** Santhosh ([santhoshgg08@gmail.com](mailto:santhoshgg08@gmail.com))  
+**Repository:** [https://github.com/Santhosh082006/zaira-ai](https://github.com/Santhosh082006/zaira-ai)  
+
 TruthLens AI is a dual-engine multimodal AI platform combining:
 1. **Zaira AI — Next-Gen AI Interviewer**: A real-time, speech-first AI interview assessment system featuring a photorealistic 2D avatar with real-time audio-driven lip synchronization, live acoustic analysis, WebSocket streaming, and automated evaluation.
 2. **Multimodal Consistency Analyzer**: An objective narrative and video analysis system for comparing spoken accounts, extracting timeline events, evaluating verbal/non-verbal behavioral signals, and generating structured consistency reports.

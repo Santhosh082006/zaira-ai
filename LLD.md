@@ -3,6 +3,11 @@
 ## Project Title
 **Zaira AI — Adaptive AI Interviewer**
 
+**Author:** Santhosh (santhoshgg08@gmail.com)  
+**Repository:** [https://github.com/Santhosh082006/zaira-ai](https://github.com/Santhosh082006/zaira-ai)  
+**Document Version:** 1.0.0  
+**Status:** Approved  
+
 ---
 
 ## 1. Database Schema / Data Models
