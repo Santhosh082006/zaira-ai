@@ -242,6 +242,29 @@ export function useLiveAvatar({
     };
   }, []);
 
+  // Suppress third-party HeyGen SDK unhandled background timer rejections (e.g. Session not found / out of credits)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reasonStr = String(event?.reason?.message || event?.reason || "");
+      if (
+        reasonStr.includes("Session not found") ||
+        reasonStr.includes("No credits available") ||
+        reasonStr.includes("liveavatar") ||
+        reasonStr.includes("keep-alive")
+      ) {
+        console.warn("[LiveAvatar Notice Intercepted]:", reasonStr);
+        event.preventDefault(); // Prevents Next.js development error modal from hijacking candidate UI
+      }
+    };
+
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () => {
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
   // Enter attentive listening state (mouth naturally closed, natural presence)
   const startListening = useCallback(() => {
     const session = sessionRef.current;
@@ -704,7 +727,15 @@ export function useLiveAvatar({
       streamReadyRef.current = false;
       setHasActiveStream(false);
       if (sessionRef.current) {
-        sessionRef.current.stop().catch(() => {});
+        try {
+          const s = sessionRef.current;
+          sessionRef.current = null;
+          if (typeof s.stop === "function") {
+            s.stop().catch(() => {});
+          }
+        } catch {
+          // ignore
+        }
       }
     };
   }, []);
