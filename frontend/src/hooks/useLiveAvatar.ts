@@ -549,10 +549,18 @@ export function useLiveAvatar({
         } catch (startErr: unknown) {
           const errMsg = startErr instanceof Error ? startErr.message : String(startErr);
           console.warn("[LiveAvatar] session.start failed:", errMsg);
+          try {
+            if (typeof session.stop === "function") {
+              session.stop();
+            }
+          } catch {}
+          if (errMsg.toLowerCase().includes("credit")) {
+            setIsConfigured(false);
+          }
           setState("ERROR");
           setStatusMessage(
             errMsg.toLowerCase().includes("credit")
-              ? "LiveAvatar video credits unavailable. Using Neural Voice interviewer."
+              ? "HeyGen account has 0 credits. Switched to built-in 3D Digital Human."
               : `LiveAvatar notice: ${errMsg}`
           );
           setDiagnostics((d) => ({

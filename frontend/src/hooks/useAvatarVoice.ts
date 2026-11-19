@@ -18,6 +18,7 @@ export function useAvatarVoice(
   const [questionPhase, setQuestionPhase] = useState<"SPEAKING" | "READY_TO_ANSWER">("READY_TO_ANSWER");
   const [speechFailed, setSpeechFailed] = useState<boolean>(false);
   const [activeWord, setActiveWord] = useState<string>("");
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
 
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const speakerRef = useRef<QuestionSpeaker | null>(null);
@@ -48,6 +49,7 @@ export function useAvatarVoice(
       activeAudioRef.current.currentTime = 0;
       activeAudioRef.current = null;
     }
+    setAudioElement(null);
     if (currentBlobUrlRef.current) {
       URL.revokeObjectURL(currentBlobUrlRef.current);
       currentBlobUrlRef.current = null;
@@ -82,6 +84,7 @@ export function useAvatarVoice(
             currentBlobUrlRef.current = url;
             const audio = new Audio(url);
             activeAudioRef.current = audio;
+            setAudioElement(audio);
 
             audio.onplay = () => {
               setIsSpeaking(true);
@@ -94,6 +97,7 @@ export function useAvatarVoice(
                 currentBlobUrlRef.current = null;
               }
               activeAudioRef.current = null;
+              setAudioElement(null);
               setIsSpeaking(false);
               setQuestionPhase("READY_TO_ANSWER");
               options.onSpeechEnd?.();
@@ -222,6 +226,7 @@ export function useAvatarVoice(
     setQuestionPhase,
     speechFailed,
     activeWord,
+    audioElement,
     questionAudioBlob: null,
     speakText,
     speakQuestion,

@@ -4,10 +4,13 @@ import React, { useRef } from "react";
 import Image from "next/image";
 import { VolumeX, Radio, Sparkles, RefreshCw } from "lucide-react";
 import { LiveAvatarDiagnostics } from "../hooks/useLiveAvatar";
+import { Zaira3DAvatar } from "./Zaira3DAvatar";
 
 export interface InterviewerAvatarProps {
   isSpeaking: boolean;
+  isListening?: boolean;
   isThinking?: boolean;
+  audioElement?: HTMLAudioElement | null;
   onSkip?: () => void;
   onSpeechEnd?: () => void;
   statusLabel?: string;
@@ -32,7 +35,9 @@ const DEFAULT_AVATAR = "/images/zaira-avatar.jpg";
 
 export function InterviewerAvatar({
   isSpeaking,
+  isListening = false,
   isThinking = false,
+  audioElement = null,
   onSkip,
   mode = "hero",
   examinerName = "Zaira",
@@ -164,16 +169,14 @@ export function InterviewerAvatar({
               </div>
             )}
 
-            {/* Fallback photographic portrait when live video is not active */}
+            {/* Real-Time 3D Digital Human Avatar (WebGL + Blendshape Viseme Lip-Sync) */}
             {!isVideoLiveReady && !isConnecting && (
-              <Image
-                src={DEFAULT_AVATAR}
-                alt="Zaira - AI Interviewer"
-                fill
-                sizes="(max-width: 768px) 100vw, (max-width: 1400px) 70vw, 800px"
-                priority
-                unoptimized
-                className="object-contain object-bottom pointer-events-none select-none drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)] z-0 transition-opacity duration-500"
+              <Zaira3DAvatar
+                isSpeaking={isSpeaking}
+                isListening={isListening}
+                isThinking={isThinking}
+                audioElement={audioElement}
+                mode={mode}
               />
             )}
           </div>

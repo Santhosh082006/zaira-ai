@@ -145,11 +145,6 @@ export default function InterviewDashboard() {
 
   const handleStart = () => {
     setQuestionPhase("SPEAKING");
-    if (liveAvatar.isConfigured) {
-      liveAvatar.connect().catch((err) => {
-        console.warn("LiveAvatar session connection notice:", err);
-      });
-    }
     startSession();
   };
 
@@ -287,7 +282,9 @@ export default function InterviewDashboard() {
                 <InterviewerAvatar
                   mode="hero"
                   isSpeaking={isAvatarSpeaking}
+                  isListening={false}
                   isThinking={false}
+                  audioElement={avatarVoice.audioElement}
                   onSkip={handleStopSpeaking}
                   onSpeechEnd={handleSpeechConcluded}
                   questionId={currentQuestion.id}
@@ -379,7 +376,9 @@ export default function InterviewDashboard() {
                     <InterviewerAvatar
                       mode="compact"
                       isSpeaking={isAvatarSpeaking}
+                      isListening={appState !== "PROCESSING"}
                       isThinking={appState === "PROCESSING"}
+                      audioElement={avatarVoice.audioElement}
                       onSkip={handleStopSpeaking}
                       onSpeechEnd={handleSpeechConcluded}
                       questionId={currentQuestion.id}
