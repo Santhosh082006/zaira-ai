@@ -74,7 +74,7 @@ export default function InterviewDashboard() {
   const isFirstQuestionRef = React.useRef<boolean>(true);
   const hasSpokenCompletionRef = React.useRef<boolean>(false);
 
-  // Authoritative speech pipeline: attempts LiveAvatar first, falls back cleanly to Neural Voice
+  // Authoritative speech pipeline: speaks directly via single-channel Neural Voice
   const articulatePrompt = React.useCallback(
     async (promptText: string) => {
       // 1. Immediately halt any previous speech to eliminate overlapping voice
@@ -83,19 +83,8 @@ export default function InterviewDashboard() {
       }
       avatarVoice.stopSpeaking();
 
-      // 2. Try HeyGen LiveAvatar BYOA if available and healthy
-      if (liveAvatar.isConfigured && liveAvatar.state !== "ERROR") {
-        console.log("[Audio Pipeline] Attempting HeyGen LiveAvatar speech articulation...");
-        const ok = await liveAvatar.speakText(promptText);
-        if (ok) {
-          console.log("[Audio Pipeline] LiveAvatar speaking initiated successfully.");
-          return;
-        }
-        console.warn("[Audio Pipeline] LiveAvatar unavailable. Continuing with Neural Voice.");
-      }
-
-      // 3. Mutually exclusive fallback: Neural Voice TTS
-      console.log("[Audio Pipeline] Articulating via Neural Voice...");
+      // 2. Authoritative speech articulation via Edge-TTS & Web Audio Analyser
+      console.log("[Audio Pipeline] Articulating via Neural Voice & 3D WebGL Avatar...");
       await avatarVoice.speakText(promptText);
     },
     [liveAvatar, avatarVoice]
@@ -284,6 +273,7 @@ export default function InterviewDashboard() {
                   isSpeaking={isAvatarSpeaking}
                   isListening={false}
                   isThinking={false}
+                  analyserNode={avatarVoice.analyserNode}
                   audioElement={avatarVoice.audioElement}
                   onSkip={handleStopSpeaking}
                   onSpeechEnd={handleSpeechConcluded}
@@ -378,6 +368,7 @@ export default function InterviewDashboard() {
                       isSpeaking={isAvatarSpeaking}
                       isListening={appState !== "PROCESSING"}
                       isThinking={appState === "PROCESSING"}
+                      analyserNode={avatarVoice.analyserNode}
                       audioElement={avatarVoice.audioElement}
                       onSkip={handleStopSpeaking}
                       onSpeechEnd={handleSpeechConcluded}

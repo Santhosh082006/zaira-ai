@@ -9,6 +9,7 @@ export interface Zaira3DAvatarProps {
   isSpeaking: boolean;
   isListening?: boolean;
   isThinking?: boolean;
+  analyserNode?: AnalyserNode | null;
   audioElement?: HTMLAudioElement | null;
   mode?: "hero" | "compact";
   className?: string;
@@ -24,7 +25,7 @@ export function Zaira3DAvatar({
   isSpeaking,
   isListening = false,
   isThinking = false,
-  audioElement = null,
+  analyserNode = null,
   mode = "hero",
   className = "",
   onLoaded,
@@ -50,38 +51,25 @@ export function Zaira3DAvatar({
     spine2?: THREE.Bone;
   }>({});
 
-  // Audio analysis references
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  // Audio frequency buffer
   const freqDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   // Animation state tracking
   const nextBlinkTimeRef = useRef<number>(Date.now() + 2000);
-  const blinkDurationRef = useRef<number>(140);
+  const blinkDurationRef = useRef<number>(130);
   const isBlinkingRef = useRef<boolean>(false);
   const blinkStartRef = useRef<number>(0);
 
-  // Current smoothed blendshape values (to prevent jerky transitions)
+  // Current smoothed blendshape values
   const currentVisemesRef = useRef<{ [name: string]: number }>({
     jawOpen: 0,
-    mouthOpen: 0,
     viseme_aa: 0,
     viseme_E: 0,
     viseme_I: 0,
     viseme_O: 0,
-    viseme_U: 0,
-    viseme_PP: 0,
-    viseme_FF: 0,
-    viseme_TH: 0,
-    viseme_DD: 0,
-    viseme_kk: 0,
-    viseme_CH: 0,
     viseme_SS: 0,
-    viseme_nn: 0,
-    viseme_RR: 0,
     viseme_sil: 1,
-    mouthSmile: 0.12,
+    mouthSmile: 0.08,
     eyeBlinkLeft: 0,
     eyeBlinkRight: 0,
     browInnerUp: 0,
@@ -104,48 +92,12 @@ export function Zaira3DAvatar({
     }
   }, []);
 
-  // Connect Web Audio API to the authoritative audio element
+  // Update frequency data buffer when analyser node is ready
   useEffect(() => {
-    if (!audioElement) return;
-
-    try {
-      const AudioCtxClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtxClass) return;
-
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioCtxClass();
-      }
-
-      const ctx = audioContextRef.current;
-      if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {});
-      }
-
-      if (!analyserRef.current) {
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        analyser.smoothingTimeConstant = 0.5;
-        analyserRef.current = analyser;
-        freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
-      }
-
-      // Check if source already attached to avoid InvalidStateError
-      if (!audioSourceRef.current && analyserRef.current) {
-        try {
-          const source = ctx.createMediaElementSource(audioElement);
-          source.connect(analyserRef.current);
-          analyserRef.current.connect(ctx.destination);
-          audioSourceRef.current = source;
-        } catch {
-          // If already connected by browser or another node, ignore
-        }
-      }
-    } catch (err) {
-      console.warn("[Zaira3D] AudioContext init notice:", err);
+    if (analyserNode) {
+      freqDataRef.current = new Uint8Array(analyserNode.frequencyBinCount);
     }
-  }, [audioElement]);
+  }, [analyserNode]);
 
   // Main Three.js Scene Setup & Model Loading
   useEffect(() => {
@@ -159,18 +111,18 @@ export function Zaira3DAvatar({
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // 2. Camera: Focused on upper bust / portrait framing
-    // Height of face in zaira.glb is around y = 1.62m
-    const fov = mode === "compact" ? 26 : 28;
+    // 2. Camera: Precise portrait framing for the realistic model
+    // Model Head world Y is at 1.68m, eyes at 1.75m, mouth at 1.65m
+    const fov = mode === "compact" ? 24 : 26;
     const camera = new THREE.PerspectiveCamera(
       fov,
       container.clientWidth / container.clientHeight,
       0.1,
       20
     );
-    // Camera placed slightly below eye level looking slightly up
-    camera.position.set(0, 1.58, 0.82);
-    camera.lookAt(0, 1.62, 0);
+    // Camera positioned at bust height (1.63m) looking at face center (1.66m)
+    camera.position.set(0, 1.63, 0.72);
+    camera.lookAt(0, 1.66, 0);
     cameraRef.current = camera;
 
     // 3. Renderer with high-performance WebGL
@@ -183,36 +135,36 @@ export function Zaira3DAvatar({
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.05;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     rendererRef.current = renderer;
 
-    // 4. Professional Studio 3-Point Lighting
-    // Base ambient
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // 4. Professional Studio 3-Point Lighting for natural human skin
+    // Soft base ambient
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambientLight);
 
     // Key Light (top-front-right, warm white)
-    const keyLight = new THREE.DirectionalLight(0xfff8f0, 2.2);
-    keyLight.position.set(1.5, 2.6, 2.0);
+    const keyLight = new THREE.DirectionalLight(0xfffaed, 2.0);
+    keyLight.position.set(1.2, 2.4, 1.8);
     scene.add(keyLight);
 
     // Fill Light (top-front-left, soft cool neutral)
-    const fillLight = new THREE.DirectionalLight(0xdbeafe, 1.3);
-    fillLight.position.set(-1.8, 1.8, 1.5);
+    const fillLight = new THREE.DirectionalLight(0xdbeafe, 1.1);
+    fillLight.position.set(-1.5, 1.8, 1.4);
     scene.add(fillLight);
 
     // Rim / Hair Light (back, teal/cyan accent matching Zaira aesthetic)
-    const rimLight = new THREE.DirectionalLight(0x2dd4bf, 2.4);
-    rimLight.position.set(0.0, 2.2, -1.8);
+    const rimLight = new THREE.DirectionalLight(0x2dd4bf, 2.0);
+    rimLight.position.set(0.0, 2.2, -1.6);
     scene.add(rimLight);
 
-    // Subtle soft bottom-up chest bounce
-    const bounceLight = new THREE.DirectionalLight(0x0f766e, 0.5);
-    bounceLight.position.set(0.0, 0.2, 1.0);
+    // Subtle chest/chin bounce
+    const bounceLight = new THREE.DirectionalLight(0x14b8a6, 0.4);
+    bounceLight.position.set(0.0, 0.5, 1.0);
     scene.add(bounceLight);
 
-    // 5. Load 3D Digital Human Model (/models/zaira.glb)
+    // 5. Load 3D Model (/models/zaira.glb)
     const loader = new GLTFLoader();
     loader.load(
       "/models/zaira.glb",
@@ -223,11 +175,9 @@ export function Zaira3DAvatar({
         scene.add(model);
         modelRef.current = model;
 
-        // Position model: feet at ground, face centered
         model.position.set(0, 0, 0);
         model.rotation.set(0, 0, 0);
 
-        // Scan meshes for morph targets and bones
         const morphMeshes: MorphMeshInfo[] = [];
         const bones: { head?: THREE.Bone; neck?: THREE.Bone; spine2?: THREE.Bone } = {};
 
@@ -266,12 +216,13 @@ export function Zaira3DAvatar({
         morphMeshesRef.current = morphMeshes;
         bonesRef.current = bones;
 
-        // Set natural resting face (gentle friendly smile)
-        const meshes = morphMeshesRef.current;
-        for (const { mesh, dict } of meshes) {
+        // Set natural resting face (mouth closed, subtle warm smile)
+        for (const { mesh, dict } of morphMeshes) {
           if (!mesh.morphTargetInfluences) continue;
-          if (dict.mouthSmile !== undefined) mesh.morphTargetInfluences[dict.mouthSmile] = 0.12;
+          if (dict.mouthSmile !== undefined) mesh.morphTargetInfluences[dict.mouthSmile] = 0.08;
           if (dict.viseme_sil !== undefined) mesh.morphTargetInfluences[dict.viseme_sil] = 1.0;
+          if (dict.jawOpen !== undefined) mesh.morphTargetInfluences[dict.jawOpen] = 0.0;
+          if (dict.mouthOpen !== undefined) mesh.morphTargetInfluences[dict.mouthOpen] = 0.0;
         }
 
         setIsLoading(false);
@@ -302,23 +253,22 @@ export function Zaira3DAvatar({
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
 
-    // 7. 60 FPS Render & Procedural Animation Loop
+    // 7. 60 FPS Render & Animation Loop
     let clock = new THREE.Clock();
 
     const animate = () => {
       animationFrameRef.current = requestAnimationFrame(animate);
 
-      const delta = clock.getDelta();
       const time = clock.getElapsedTime();
       const now = Date.now();
 
       // -------------------------------------------------------------
-      // A. Procedural Blinking
+      // A. Procedural Eye Blinking (Every 2.8 - 4.5s, 130ms duration)
       // -------------------------------------------------------------
       if (!isBlinkingRef.current && now > nextBlinkTimeRef.current) {
         isBlinkingRef.current = true;
         blinkStartRef.current = now;
-        blinkDurationRef.current = 130 + Math.random() * 40; // 130-170ms
+        blinkDurationRef.current = 120 + Math.random() * 30;
       }
 
       if (isBlinkingRef.current) {
@@ -329,10 +279,8 @@ export function Zaira3DAvatar({
           isBlinkingRef.current = false;
           setMorphTarget("eyeBlinkLeft", 0);
           setMorphTarget("eyeBlinkRight", 0);
-          // Next blink in 2.8 - 4.5 seconds
           nextBlinkTimeRef.current = now + 2800 + Math.random() * 1700;
         } else {
-          // Smooth sine curve: open -> closed -> open
           const blinkValue = Math.sin(progress * Math.PI);
           setMorphTarget("eyeBlinkLeft", blinkValue);
           setMorphTarget("eyeBlinkRight", blinkValue);
@@ -340,12 +288,12 @@ export function Zaira3DAvatar({
       }
 
       // -------------------------------------------------------------
-      // B. Procedural Head & Body Motion
+      // B. Procedural Head & Breathing Motion
       // -------------------------------------------------------------
       const bones = bonesRef.current;
 
-      // 1. Idle breathing (subtle chest and neck expansion)
-      const breath = Math.sin(time * 1.7) * 0.003;
+      // 1. Natural idle breathing
+      const breath = Math.sin(time * 1.6) * 0.0025;
       if (bones.spine2) {
         bones.spine2.rotation.x = breath;
       }
@@ -353,37 +301,37 @@ export function Zaira3DAvatar({
         bones.neck.rotation.x = breath * 0.5;
       }
 
-      // 2. Attentive Listening / Speaking / Thinking head posture
+      // 2. Head posture
       if (bones.head) {
         if (isThinking) {
-          // Slightly tilted up-left during evaluation
-          bones.head.rotation.x = THREE.MathUtils.lerp(bones.head.rotation.x, -0.04, 0.05);
-          bones.head.rotation.y = THREE.MathUtils.lerp(bones.head.rotation.y, -0.06, 0.05);
+          // Attentive evaluation: slightly tilted up-left
+          bones.head.rotation.x = THREE.MathUtils.lerp(bones.head.rotation.x, -0.03, 0.05);
+          bones.head.rotation.y = THREE.MathUtils.lerp(bones.head.rotation.y, -0.05, 0.05);
           bones.head.rotation.z = THREE.MathUtils.lerp(bones.head.rotation.z, 0.02, 0.05);
-          setMorphTarget("browInnerUp", THREE.MathUtils.lerp(currentVisemesRef.current.browInnerUp || 0, 0.18, 0.1));
-          setMorphTarget("browDownLeft", THREE.MathUtils.lerp(currentVisemesRef.current.browDownLeft || 0, 0.12, 0.1));
+          setMorphTarget("browInnerUp", THREE.MathUtils.lerp(currentVisemesRef.current.browInnerUp || 0, 0.14, 0.08));
+          setMorphTarget("browDownLeft", THREE.MathUtils.lerp(currentVisemesRef.current.browDownLeft || 0, 0.10, 0.08));
         } else if (isListening) {
-          // Attentive affirmative nods while candidate speaks
-          const nod = Math.sin(time * 2.4) * 0.025;
-          const tilt = Math.sin(time * 0.9) * 0.015;
-          bones.head.rotation.x = THREE.MathUtils.lerp(bones.head.rotation.x, nod + 0.02, 0.08);
+          // Attentive listening: affirmative nod while candidate speaks
+          const nod = Math.sin(time * 2.2) * 0.02;
+          const tilt = Math.sin(time * 0.8) * 0.012;
+          bones.head.rotation.x = THREE.MathUtils.lerp(bones.head.rotation.x, nod + 0.015, 0.08);
           bones.head.rotation.y = THREE.MathUtils.lerp(bones.head.rotation.y, 0.0, 0.05);
           bones.head.rotation.z = THREE.MathUtils.lerp(bones.head.rotation.z, tilt, 0.05);
-          setMorphTarget("browInnerUp", THREE.MathUtils.lerp(currentVisemesRef.current.browInnerUp || 0, 0.10, 0.08));
+          setMorphTarget("browInnerUp", THREE.MathUtils.lerp(currentVisemesRef.current.browInnerUp || 0, 0.08, 0.08));
           setMorphTarget("browDownLeft", 0);
           setMorphTarget("browDownRight", 0);
         } else if (isSpeaking) {
           // Natural conversational head accents
-          const pitch = Math.sin(time * 3.2) * 0.02;
-          const yaw = Math.sin(time * 1.5) * 0.025;
+          const pitch = Math.sin(time * 2.8) * 0.016;
+          const yaw = Math.sin(time * 1.4) * 0.018;
           bones.head.rotation.x = THREE.MathUtils.lerp(bones.head.rotation.x, pitch, 0.08);
           bones.head.rotation.y = THREE.MathUtils.lerp(bones.head.rotation.y, yaw, 0.08);
           bones.head.rotation.z = THREE.MathUtils.lerp(bones.head.rotation.z, 0.0, 0.08);
-          setMorphTarget("browInnerUp", THREE.MathUtils.lerp(currentVisemesRef.current.browInnerUp || 0, 0.08, 0.1));
+          setMorphTarget("browInnerUp", THREE.MathUtils.lerp(currentVisemesRef.current.browInnerUp || 0, 0.06, 0.08));
           setMorphTarget("browDownLeft", 0);
           setMorphTarget("browDownRight", 0);
         } else {
-          // Neutral resting gaze targeting candidate
+          // Neutral resting gaze
           bones.head.rotation.x = THREE.MathUtils.lerp(bones.head.rotation.x, 0.0, 0.05);
           bones.head.rotation.y = THREE.MathUtils.lerp(bones.head.rotation.y, 0.0, 0.05);
           bones.head.rotation.z = THREE.MathUtils.lerp(bones.head.rotation.z, 0.0, 0.05);
@@ -394,80 +342,85 @@ export function Zaira3DAvatar({
       }
 
       // -------------------------------------------------------------
-      // C. Audio-Driven Lip Synchronization
+      // C. Realistic Audio-Driven Lip Synchronization
       // -------------------------------------------------------------
-      if (isSpeaking) {
-        let volume = 0;
-        let lowFormant = 0;
-        let midFormant = 0;
-        let highFormant = 0;
+      let volume = 0;
+      let targetJawOpen = 0;
+      let targetVisemeAA = 0;
+      let targetVisemeE = 0;
+      let targetVisemeO = 0;
+      let targetVisemeSS = 0;
 
-        const analyser = analyserRef.current;
-        const freqData = freqDataRef.current;
+      const freqData = freqDataRef.current;
 
-        if (analyser && freqData && audioElement && !audioElement.paused) {
-          analyser.getByteFrequencyData(freqData);
+      // Only articulate when speech is active AND real audio frequency data is present
+      if (isSpeaking && analyserNode && freqData) {
+        analyserNode.getByteFrequencyData(freqData);
 
-          // Bin frequencies: FFT size 512 = 256 bins across 24000 Hz (~93.75 Hz/bin)
-          // Low Formant (F1: 200 - 800 Hz): Bins 2 to 9
-          let lowSum = 0;
-          for (let b = 2; b <= 9; b++) lowSum += freqData[b];
-          lowFormant = lowSum / (8 * 255);
+        // Low Formant (F1: 200 - 800 Hz): Bins 2 to 9
+        let lowSum = 0;
+        for (let b = 2; b <= 9; b++) lowSum += freqData[b];
+        const lowFormant = lowSum / (8 * 255);
 
-          // Mid Formant (F2: 900 - 2200 Hz): Bins 10 to 24
-          let midSum = 0;
-          for (let b = 10; b <= 24; b++) midSum += freqData[b];
-          midFormant = midSum / (15 * 255);
+        // Mid Formant (F2: 900 - 2200 Hz): Bins 10 to 24
+        let midSum = 0;
+        for (let b = 10; b <= 24; b++) midSum += freqData[b];
+        const midFormant = midSum / (15 * 255);
 
-          // High Formant (F3: 2300 - 4500 Hz): Bins 25 to 48
-          let highSum = 0;
-          for (let b = 25; b <= 48; b++) highSum += freqData[b];
-          highFormant = highSum / (24 * 255);
+        // High Formant (F3: 2300 - 4500 Hz): Bins 25 to 48
+        let highSum = 0;
+        for (let b = 25; b <= 48; b++) highSum += freqData[b];
+        const highFormant = highSum / (24 * 255);
 
-          // Overall voice volume
-          volume = Math.max(lowFormant * 1.2, (lowFormant + midFormant + highFormant) / 2.2);
-        } else {
-          // Synthetic speech cadence fallback when audio element analyser is not yet attached
-          const speechCycle = Math.sin(time * 15.0) * 0.5 + 0.5;
-          const syllableBurst = Math.sin(time * 4.5) * 0.3 + 0.7;
-          volume = speechCycle * syllableBurst * 0.75;
-          lowFormant = volume * 0.8;
-          midFormant = (Math.cos(time * 12.0) * 0.5 + 0.5) * volume;
-          highFormant = (Math.sin(time * 18.0) * 0.5 + 0.5) * volume * 0.6;
+        // Overall voice volume
+        volume = (lowFormant * 1.5 + midFormant + highFormant) / 3;
+
+        // Threshold for speech vs silence/breath
+        if (volume >= 0.04) {
+          // Competitive phoneme selection (mutually exclusive dominance, never stack all at once)
+          if (lowFormant > midFormant && lowFormant > highFormant) {
+            // Open Vowel ("AA", "AH"): subtle jaw drop (max 0.20) + lip relaxation
+            targetJawOpen = Math.min(0.20, lowFormant * 0.38);
+            targetVisemeAA = Math.min(0.22, lowFormant * 0.42);
+          } else if (midFormant > lowFormant) {
+            // Front Vowel ("EE", "IH"): slight jaw drop (max 0.14) + spread lips
+            targetJawOpen = Math.min(0.14, midFormant * 0.26);
+            targetVisemeE = Math.min(0.20, midFormant * 0.38);
+          } else if (lowFormant > 0.08 && midFormant > 0.08 && highFormant < 0.08) {
+            // Rounded Vowel ("OH", "OO"): slight jaw drop (max 0.16) + rounded lips
+            targetJawOpen = Math.min(0.16, lowFormant * 0.28);
+            targetVisemeO = Math.min(0.22, lowFormant * 0.40);
+          } else if (highFormant > 0.06) {
+            // Fricative / Sibilant ("SS", "CH", "TH"): minimal jaw drop + dental viseme
+            targetJawOpen = 0.04;
+            targetVisemeSS = Math.min(0.16, highFormant * 0.32);
+          }
         }
+      }
 
-        // Map audio frequencies to Viseme Blendshapes
-        const targetJawOpen = Math.min(1.0, lowFormant * 1.5 + volume * 0.4);
-        const targetVisemeAA = Math.min(1.0, lowFormant * 1.4);
-        const targetVisemeE = Math.min(1.0, midFormant * 1.3);
-        const targetVisemeO = Math.min(1.0, (lowFormant * 0.7 + highFormant * 0.3) * 1.1);
-        const targetVisemeSS = Math.min(1.0, highFormant * 1.2);
+      // Smooth interpolation for natural lip movement without jarring transitions
+      const cur = currentVisemesRef.current;
+      const isAudiblySpeaking = isSpeaking && volume >= 0.04;
 
-        // Smooth interpolation for fluid lip articulation (no jitter)
-        const lerpFactor = 0.35;
-        const cur = currentVisemesRef.current;
-
+      if (isAudiblySpeaking) {
+        const lerpFactor = 0.30;
         setMorphTarget("jawOpen", THREE.MathUtils.lerp(cur.jawOpen || 0, targetJawOpen, lerpFactor));
-        setMorphTarget("mouthOpen", THREE.MathUtils.lerp(cur.mouthOpen || 0, targetJawOpen * 0.8, lerpFactor));
         setMorphTarget("viseme_aa", THREE.MathUtils.lerp(cur.viseme_aa || 0, targetVisemeAA, lerpFactor));
         setMorphTarget("viseme_E", THREE.MathUtils.lerp(cur.viseme_E || 0, targetVisemeE, lerpFactor));
         setMorphTarget("viseme_O", THREE.MathUtils.lerp(cur.viseme_O || 0, targetVisemeO, lerpFactor));
         setMorphTarget("viseme_SS", THREE.MathUtils.lerp(cur.viseme_SS || 0, targetVisemeSS, lerpFactor));
-        setMorphTarget("viseme_sil", THREE.MathUtils.lerp(cur.viseme_sil || 0, Math.max(0, 1 - volume * 2), 0.2));
-        setMorphTarget("mouthSmile", 0.10);
+        setMorphTarget("viseme_sil", THREE.MathUtils.lerp(cur.viseme_sil || 0, 0, 0.2));
+        setMorphTarget("mouthSmile", 0.06);
       } else {
-        // Speech ended: smoothly close mouth to natural resting position within 60ms
-        const cur = currentVisemesRef.current;
-        const closeSpeed = 0.22;
-
+        // Silence or Speech concluded: smoothly close mouth to natural resting position within 50ms
+        const closeSpeed = 0.28;
         setMorphTarget("jawOpen", THREE.MathUtils.lerp(cur.jawOpen || 0, 0, closeSpeed));
-        setMorphTarget("mouthOpen", THREE.MathUtils.lerp(cur.mouthOpen || 0, 0, closeSpeed));
         setMorphTarget("viseme_aa", THREE.MathUtils.lerp(cur.viseme_aa || 0, 0, closeSpeed));
         setMorphTarget("viseme_E", THREE.MathUtils.lerp(cur.viseme_E || 0, 0, closeSpeed));
         setMorphTarget("viseme_O", THREE.MathUtils.lerp(cur.viseme_O || 0, 0, closeSpeed));
         setMorphTarget("viseme_SS", THREE.MathUtils.lerp(cur.viseme_SS || 0, 0, closeSpeed));
         setMorphTarget("viseme_sil", THREE.MathUtils.lerp(cur.viseme_sil || 0, 1.0, closeSpeed));
-        setMorphTarget("mouthSmile", THREE.MathUtils.lerp(cur.mouthSmile || 0, 0.14, 0.1));
+        setMorphTarget("mouthSmile", THREE.MathUtils.lerp(cur.mouthSmile || 0, 0.08, 0.1));
       }
 
       // Render frame
@@ -489,7 +442,7 @@ export function Zaira3DAvatar({
         scene.clear();
       }
     };
-  }, [mode, isSpeaking, isListening, isThinking, audioElement, setMorphTarget, onLoaded]);
+  }, [mode, isSpeaking, isListening, isThinking, analyserNode, setMorphTarget, onLoaded]);
 
   return (
     <div

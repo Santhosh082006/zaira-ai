@@ -18,19 +18,34 @@ export function useAvatarVoice(
   const [questionPhase, setQuestionPhase] = useState<"SPEAKING" | "READY_TO_ANSWER">("READY_TO_ANSWER");
   const [speechFailed, setSpeechFailed] = useState<boolean>(false);
   const [activeWord, setActiveWord] = useState<string>("");
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
 
-  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const persistentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const speakerRef = useRef<QuestionSpeaker | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
 
-  // Initialize browser speech synthesis speaker on mount
+  // Initialize persistent Audio element & Web Audio Analyser on mount
   useEffect(() => {
     speakerRef.current = new QuestionSpeaker();
+
+    // Create a single persistent Audio element
+    if (typeof window !== "undefined") {
+      const audio = new Audio();
+      audio.crossOrigin = "anonymous";
+      persistentAudioRef.current = audio;
+    }
+
     return () => {
-      if (activeAudioRef.current) {
-        activeAudioRef.current.pause();
-        activeAudioRef.current = null;
+      if (persistentAudioRef.current) {
+        persistentAudioRef.current.pause();
+        persistentAudioRef.current.src = "";
+        persistentAudioRef.current = null;
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
       }
       if (currentBlobUrlRef.current) {
         URL.revokeObjectURL(currentBlobUrlRef.current);
@@ -43,13 +58,42 @@ export function useAvatarVoice(
     };
   }, []);
 
-  const stopSpeaking = useCallback(() => {
-    if (activeAudioRef.current) {
-      activeAudioRef.current.pause();
-      activeAudioRef.current.currentTime = 0;
-      activeAudioRef.current = null;
+  // Lazily connect persistent Audio element to Web Audio AnalyserNode (called on user gesture)
+  const ensureAudioGraph = useCallback((): AnalyserNode | null => {
+    if (analyserRef.current) return analyserRef.current;
+    if (typeof window === "undefined" || !persistentAudioRef.current) return null;
+
+    try {
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtxClass) return null;
+
+      const ctx = new AudioCtxClass();
+      audioContextRef.current = ctx;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.4;
+      analyserRef.current = analyser;
+
+      const source = ctx.createMediaElementSource(persistentAudioRef.current);
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      setAnalyserNode(analyser);
+      return analyser;
+    } catch (err) {
+      console.warn("[AvatarVoice] Web Audio graph setup notice:", err);
+      return null;
     }
-    setAudioElement(null);
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (persistentAudioRef.current) {
+      persistentAudioRef.current.pause();
+      persistentAudioRef.current.currentTime = 0;
+    }
     if (currentBlobUrlRef.current) {
       URL.revokeObjectURL(currentBlobUrlRef.current);
       currentBlobUrlRef.current = null;
@@ -70,25 +114,31 @@ export function useAvatarVoice(
       // Stop any existing playback first to guarantee zero overlap
       stopSpeaking();
 
-      setIsSpeaking(true);
+      // Ensure AudioContext is ready and resumed
+      ensureAudioGraph();
+      if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+        audioContextRef.current.resume().catch(() => {});
+      }
+
       setQuestionPhase("SPEAKING");
       setSpeechFailed(false);
-      options.onSpeechStart?.();
 
       try {
         // 1. Fetch Edge-TTS neural speech audio
         const blob = await fetchQuestionAudio(text);
-        if (blob) {
+        if (blob && persistentAudioRef.current) {
           return new Promise<boolean>((resolve) => {
+            const audio = persistentAudioRef.current!;
             const url = URL.createObjectURL(blob);
             currentBlobUrlRef.current = url;
-            const audio = new Audio(url);
-            activeAudioRef.current = audio;
-            setAudioElement(audio);
 
+            audio.src = url;
+
+            // Only enter speaking state when audio genuinely begins playing
             audio.onplay = () => {
               setIsSpeaking(true);
               setQuestionPhase("SPEAKING");
+              options.onSpeechStart?.();
             };
 
             audio.onended = () => {
@@ -96,8 +146,6 @@ export function useAvatarVoice(
                 URL.revokeObjectURL(currentBlobUrlRef.current);
                 currentBlobUrlRef.current = null;
               }
-              activeAudioRef.current = null;
-              setAudioElement(null);
               setIsSpeaking(false);
               setQuestionPhase("READY_TO_ANSWER");
               options.onSpeechEnd?.();
@@ -105,12 +153,11 @@ export function useAvatarVoice(
             };
 
             audio.onerror = (err) => {
-              console.warn("[AvatarVoice] Audio element playback error:", err);
+              console.warn("[AvatarVoice] Audio playback error:", err);
               if (currentBlobUrlRef.current) {
                 URL.revokeObjectURL(currentBlobUrlRef.current);
                 currentBlobUrlRef.current = null;
               }
-              activeAudioRef.current = null;
               setIsSpeaking(false);
               setQuestionPhase("READY_TO_ANSWER");
               setSpeechFailed(true);
@@ -119,14 +166,15 @@ export function useAvatarVoice(
             };
 
             audio.play().catch((playErr) => {
-              console.warn("[AvatarVoice] Audio autoplay prevented:", playErr);
-              // Fall back to browser SpeechSynthesis
+              console.warn("[AvatarVoice] Audio play error, using browser speech:", playErr);
+              // Fall back to browser SpeechSynthesis if autoplay policy intercepts
               if (speakerRef.current && speakerRef.current.isAvailable()) {
                 speakerRef.current.speak(
                   text,
                   () => {
                     setIsSpeaking(true);
                     setQuestionPhase("SPEAKING");
+                    options.onSpeechStart?.();
                   },
                   () => {
                     setIsSpeaking(false);
@@ -153,14 +201,15 @@ export function useAvatarVoice(
           });
         }
 
-        // 2. Fallback: Browser SpeechSynthesis
+        // 2. Fallback to browser SpeechSynthesis if backend audio is null
         if (speakerRef.current && speakerRef.current.isAvailable()) {
           return new Promise<boolean>((resolve) => {
-            speakerRef.current?.speak(
+            speakerRef.current!.speak(
               text,
               () => {
                 setIsSpeaking(true);
                 setQuestionPhase("SPEAKING");
+                options.onSpeechStart?.();
               },
               () => {
                 setIsSpeaking(false);
@@ -174,22 +223,18 @@ export function useAvatarVoice(
                 setSpeechFailed(true);
                 options.onSpeechEnd?.();
                 resolve(false);
-              },
-              (_charIndex, _charLength, word) => {
-                setActiveWord(word);
               }
             );
           });
         }
 
-        // No audio player available
         setIsSpeaking(false);
         setQuestionPhase("READY_TO_ANSWER");
         setSpeechFailed(true);
         options.onSpeechEnd?.();
         return false;
       } catch (err) {
-        console.warn("[AvatarVoice] Speech articulation error:", err);
+        console.warn("[AvatarVoice] speakText error:", err);
         setIsSpeaking(false);
         setQuestionPhase("READY_TO_ANSWER");
         setSpeechFailed(true);
@@ -197,7 +242,7 @@ export function useAvatarVoice(
         return false;
       }
     },
-    [stopSpeaking, options]
+    [stopSpeaking, ensureAudioGraph, options]
   );
 
   const speakQuestion = useCallback(
@@ -226,7 +271,8 @@ export function useAvatarVoice(
     setQuestionPhase,
     speechFailed,
     activeWord,
-    audioElement,
+    analyserNode,
+    audioElement: persistentAudioRef.current,
     questionAudioBlob: null,
     speakText,
     speakQuestion,

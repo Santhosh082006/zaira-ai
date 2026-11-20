@@ -10,6 +10,7 @@ export interface InterviewerAvatarProps {
   isSpeaking: boolean;
   isListening?: boolean;
   isThinking?: boolean;
+  analyserNode?: AnalyserNode | null;
   audioElement?: HTMLAudioElement | null;
   onSkip?: () => void;
   onSpeechEnd?: () => void;
@@ -37,6 +38,7 @@ export function InterviewerAvatar({
   isSpeaking,
   isListening = false,
   isThinking = false,
+  analyserNode = null,
   audioElement = null,
   onSkip,
   mode = "hero",
@@ -175,6 +177,7 @@ export function InterviewerAvatar({
                 isSpeaking={isSpeaking}
                 isListening={isListening}
                 isThinking={isThinking}
+                analyserNode={analyserNode}
                 audioElement={audioElement}
                 mode={mode}
               />
