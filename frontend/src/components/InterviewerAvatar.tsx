@@ -4,6 +4,7 @@ import React, { useRef } from "react";
 import Image from "next/image";
 import { VolumeX, Radio, Sparkles, RefreshCw } from "lucide-react";
 import { LiveAvatarDiagnostics } from "../hooks/useLiveAvatar";
+import { WordTiming } from "../lib/visemeEngine";
 import { Zaira3DAvatar } from "./Zaira3DAvatar";
 
 export interface InterviewerAvatarProps {
@@ -12,6 +13,9 @@ export interface InterviewerAvatarProps {
   isThinking?: boolean;
   analyserNode?: AnalyserNode | null;
   audioElement?: HTMLAudioElement | null;
+  wordTimings?: WordTiming[];
+  spokenText?: string;
+  speechGeneration?: number;
   onSkip?: () => void;
   onSpeechEnd?: () => void;
   statusLabel?: string;
@@ -40,6 +44,10 @@ export function InterviewerAvatar({
   isThinking = false,
   analyserNode = null,
   audioElement = null,
+  wordTimings = [],
+  spokenText = "",
+  speechGeneration = 0,
+  currentWord = "",
   onSkip,
   mode = "hero",
   examinerName = "Zaira",
@@ -139,15 +147,15 @@ export function InterviewerAvatar({
         />
 
         {/* Media Frame Container */}
-        <div className="relative w-full h-full max-w-[620px] flex items-end justify-center z-10">
-          <div className="relative w-full h-full flex items-end justify-center select-none">
-            {/* Live HeyGen WebRTC Video Element */}
+        <div className="relative w-full h-full max-w-[620px] flex items-center justify-center z-10">
+          <div className="relative w-full h-full flex items-center justify-center select-none">
+            {/* Live HeyGen WebRTC Video Element (Absolute overlay so it never shifts the layout) */}
             {isLiveAvatarConfigured && liveVideoRef && (
               <video
                 ref={liveVideoRef}
                 id="heygen-live-video"
-                className={`w-full h-full object-contain object-bottom select-none transition-opacity duration-700 drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)] ${
-                  isVideoLiveReady ? "opacity-100 z-10" : "opacity-0 pointer-events-none z-0"
+                className={`absolute inset-0 w-full h-full object-contain object-bottom select-none transition-opacity duration-700 drop-shadow-[0_24px_48px_rgba(0,0,0,0.85)] ${
+                  isVideoLiveReady ? "opacity-100 z-10" : "opacity-0 pointer-events-none -z-10"
                 }`}
                 playsInline
                 autoPlay
@@ -179,6 +187,10 @@ export function InterviewerAvatar({
                 isThinking={isThinking}
                 analyserNode={analyserNode}
                 audioElement={audioElement}
+                wordTimings={wordTimings}
+                spokenText={spokenText}
+                speechGeneration={speechGeneration}
+                activeWord={currentWord}
                 mode={mode}
               />
             )}

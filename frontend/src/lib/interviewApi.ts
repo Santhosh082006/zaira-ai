@@ -252,6 +252,41 @@ export const fetchQuestionPcmAudio = async (
   }
 };
 
+export interface TimedAudioResponse {
+  audioBlob: Blob;
+  wordTimings: Array<{ word: string; offset_ms: number; duration_ms: number }>;
+  spokenText: string;
+}
+
+export const fetchQuestionTimedAudio = async (
+  text: string,
+  voice: string = "en-US-AvaNeural",
+  rate: string = "-3%"
+): Promise<TimedAudioResponse | null> => {
+  try {
+    const res = await axios.post(
+      `${getInterviewApiBase()}/tts`,
+      { text, voice, rate, conversational_flow: true, audio_format: "mp3_timings" },
+      { timeout: 15000 }
+    );
+    const data = res.data;
+    if (!data || !data.audio_base64) return null;
+    const binary = atob(data.audio_base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return {
+      audioBlob: new Blob([bytes], { type: data.mime_type || "audio/mpeg" }),
+      wordTimings: Array.isArray(data.word_timings) ? data.word_timings : [],
+      spokenText: data.spoken_text || text,
+    };
+  } catch (err: unknown) {
+    console.warn("Timed TTS audio fetch failed, falling back to plain MP3/SpeechSynthesis:", err);
+    return null;
+  }
+};
+
 export const fetchQuestionAudio = async (
   text: string,
   voice: string = "en-US-AvaNeural",

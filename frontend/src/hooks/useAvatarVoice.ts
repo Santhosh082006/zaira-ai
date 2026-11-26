@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Question, fetchQuestionAudio } from "../lib/interviewApi";
+import { Question, fetchQuestionAudio, fetchQuestionTimedAudio } from "../lib/interviewApi";
 import { QuestionSpeaker } from "../lib/speechSynthesis";
+import { WordTiming } from "../lib/visemeEngine";
 
 interface UseAvatarVoiceOptions {
   onSpeechStart?: () => void;
@@ -19,12 +20,17 @@ export function useAvatarVoice(
   const [speechFailed, setSpeechFailed] = useState<boolean>(false);
   const [activeWord, setActiveWord] = useState<string>("");
   const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  const [wordTimings, setWordTimings] = useState<WordTiming[]>([]);
+  const [spokenText, setSpokenText] = useState<string>("");
+  const [audioElementState, setAudioElementState] = useState<HTMLAudioElement | null>(null);
+  const [speechGeneration, setSpeechGeneration] = useState<number>(0);
 
   const persistentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const speakerRef = useRef<QuestionSpeaker | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
+  const speechIdRef = useRef<number>(0);
 
   // Initialize persistent Audio element & Web Audio Analyser on mount
   useEffect(() => {
@@ -35,6 +41,7 @@ export function useAvatarVoice(
       const audio = new Audio();
       audio.crossOrigin = "anonymous";
       persistentAudioRef.current = audio;
+      setAudioElementState(audio);
     }
 
     return () => {
@@ -43,6 +50,7 @@ export function useAvatarVoice(
         persistentAudioRef.current.src = "";
         persistentAudioRef.current = null;
       }
+      setAudioElementState(null);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close().catch(() => {});
         audioContextRef.current = null;
@@ -90,7 +98,11 @@ export function useAvatarVoice(
   }, []);
 
   const stopSpeaking = useCallback(() => {
+    speechIdRef.current += 1;
     if (persistentAudioRef.current) {
+      persistentAudioRef.current.onplay = null;
+      persistentAudioRef.current.onended = null;
+      persistentAudioRef.current.onerror = null;
       persistentAudioRef.current.pause();
       persistentAudioRef.current.currentTime = 0;
     }
@@ -104,6 +116,8 @@ export function useAvatarVoice(
     setIsSpeaking(false);
     setQuestionPhase("READY_TO_ANSWER");
     setActiveWord("");
+    setWordTimings([]);
+    setSpokenText("");
   }, []);
 
   // Authoritative single-channel speech articulation
@@ -111,8 +125,9 @@ export function useAvatarVoice(
     async (text: string): Promise<boolean> => {
       if (!text || !text.trim()) return false;
 
-      // Stop any existing playback first to guarantee zero overlap
+      // Stop any existing playback first to guarantee zero overlap across repeated questions
       stopSpeaking();
+      const mySpeechId = ++speechIdRef.current;
 
       // Ensure AudioContext is ready and resumed
       ensureAudioGraph();
@@ -122,44 +137,125 @@ export function useAvatarVoice(
 
       setQuestionPhase("SPEAKING");
       setSpeechFailed(false);
+      setSpokenText(text);
+      setWordTimings([]);
+      setActiveWord("");
+      setSpeechGeneration((prev) => prev + 1);
+
+      const playBrowserSpeechFallback = (resolve: (ok: boolean) => void) => {
+        if (mySpeechId !== speechIdRef.current) {
+          resolve(false);
+          return;
+        }
+        if (speakerRef.current && speakerRef.current.isAvailable()) {
+          speakerRef.current.speak(
+            text,
+            () => {
+              if (mySpeechId !== speechIdRef.current) return;
+              setIsSpeaking(true);
+              setQuestionPhase("SPEAKING");
+              options.onSpeechStart?.();
+            },
+            () => {
+              if (mySpeechId !== speechIdRef.current) {
+                resolve(false);
+                return;
+              }
+              setIsSpeaking(false);
+              setQuestionPhase("READY_TO_ANSWER");
+              setActiveWord("");
+              options.onSpeechEnd?.();
+              resolve(true);
+            },
+            () => {
+              if (mySpeechId !== speechIdRef.current) {
+                resolve(false);
+                return;
+              }
+              setIsSpeaking(false);
+              setQuestionPhase("READY_TO_ANSWER");
+              setActiveWord("");
+              setSpeechFailed(true);
+              options.onSpeechEnd?.();
+              resolve(false);
+            },
+            (_charIdx, _charLen, word) => {
+              if (mySpeechId !== speechIdRef.current) return;
+              if (word) setActiveWord(word);
+            }
+          );
+        } else {
+          setIsSpeaking(false);
+          setQuestionPhase("READY_TO_ANSWER");
+          setSpeechFailed(true);
+          options.onSpeechEnd?.();
+          resolve(false);
+        }
+      };
 
       try {
-        // 1. Fetch Edge-TTS neural speech audio
-        const blob = await fetchQuestionAudio(text);
-        if (blob && persistentAudioRef.current) {
+        // 1. Fetch Edge-TTS neural speech audio + WordBoundary phoneme timings
+        const timed = await fetchQuestionTimedAudio(text);
+        if (mySpeechId !== speechIdRef.current) return false;
+
+        const audioBlob = timed?.audioBlob ?? (await fetchQuestionAudio(text));
+        if (mySpeechId !== speechIdRef.current) return false;
+
+        if (timed?.wordTimings?.length) {
+          setWordTimings(timed.wordTimings);
+        }
+        if (timed?.spokenText) {
+          setSpokenText(timed.spokenText);
+        }
+
+        if (audioBlob && persistentAudioRef.current) {
           return new Promise<boolean>((resolve) => {
             const audio = persistentAudioRef.current!;
-            const url = URL.createObjectURL(blob);
+            const url = URL.createObjectURL(audioBlob);
             currentBlobUrlRef.current = url;
 
             audio.src = url;
+            setAudioElementState(audio);
 
             // Only enter speaking state when audio genuinely begins playing
             audio.onplay = () => {
+              if (mySpeechId !== speechIdRef.current) return;
               setIsSpeaking(true);
               setQuestionPhase("SPEAKING");
               options.onSpeechStart?.();
             };
 
             audio.onended = () => {
-              if (currentBlobUrlRef.current) {
-                URL.revokeObjectURL(currentBlobUrlRef.current);
+              if (currentBlobUrlRef.current === url) {
+                URL.revokeObjectURL(url);
                 currentBlobUrlRef.current = null;
+              }
+              if (mySpeechId !== speechIdRef.current) {
+                resolve(false);
+                return;
               }
               setIsSpeaking(false);
               setQuestionPhase("READY_TO_ANSWER");
+              setActiveWord("");
+              setWordTimings([]);
               options.onSpeechEnd?.();
               resolve(true);
             };
 
             audio.onerror = (err) => {
               console.warn("[AvatarVoice] Audio playback error:", err);
-              if (currentBlobUrlRef.current) {
-                URL.revokeObjectURL(currentBlobUrlRef.current);
+              if (currentBlobUrlRef.current === url) {
+                URL.revokeObjectURL(url);
                 currentBlobUrlRef.current = null;
+              }
+              if (mySpeechId !== speechIdRef.current) {
+                resolve(false);
+                return;
               }
               setIsSpeaking(false);
               setQuestionPhase("READY_TO_ANSWER");
+              setActiveWord("");
+              setWordTimings([]);
               setSpeechFailed(true);
               options.onSpeechEnd?.();
               resolve(false);
@@ -167,78 +263,25 @@ export function useAvatarVoice(
 
             audio.play().catch((playErr) => {
               console.warn("[AvatarVoice] Audio play error, using browser speech:", playErr);
-              // Fall back to browser SpeechSynthesis if autoplay policy intercepts
-              if (speakerRef.current && speakerRef.current.isAvailable()) {
-                speakerRef.current.speak(
-                  text,
-                  () => {
-                    setIsSpeaking(true);
-                    setQuestionPhase("SPEAKING");
-                    options.onSpeechStart?.();
-                  },
-                  () => {
-                    setIsSpeaking(false);
-                    setQuestionPhase("READY_TO_ANSWER");
-                    options.onSpeechEnd?.();
-                    resolve(true);
-                  },
-                  () => {
-                    setIsSpeaking(false);
-                    setQuestionPhase("READY_TO_ANSWER");
-                    setSpeechFailed(true);
-                    options.onSpeechEnd?.();
-                    resolve(false);
-                  }
-                );
-              } else {
-                setIsSpeaking(false);
-                setQuestionPhase("READY_TO_ANSWER");
-                setSpeechFailed(true);
-                options.onSpeechEnd?.();
-                resolve(false);
-              }
+              playBrowserSpeechFallback(resolve);
             });
           });
         }
 
         // 2. Fallback to browser SpeechSynthesis if backend audio is null
-        if (speakerRef.current && speakerRef.current.isAvailable()) {
-          return new Promise<boolean>((resolve) => {
-            speakerRef.current!.speak(
-              text,
-              () => {
-                setIsSpeaking(true);
-                setQuestionPhase("SPEAKING");
-                options.onSpeechStart?.();
-              },
-              () => {
-                setIsSpeaking(false);
-                setQuestionPhase("READY_TO_ANSWER");
-                options.onSpeechEnd?.();
-                resolve(true);
-              },
-              () => {
-                setIsSpeaking(false);
-                setQuestionPhase("READY_TO_ANSWER");
-                setSpeechFailed(true);
-                options.onSpeechEnd?.();
-                resolve(false);
-              }
-            );
-          });
-        }
-
-        setIsSpeaking(false);
-        setQuestionPhase("READY_TO_ANSWER");
-        setSpeechFailed(true);
-        options.onSpeechEnd?.();
-        return false;
+        return new Promise<boolean>((resolve) => {
+          playBrowserSpeechFallback(resolve);
+        });
       } catch (err) {
         console.warn("[AvatarVoice] speakText error:", err);
-        setIsSpeaking(false);
-        setQuestionPhase("READY_TO_ANSWER");
-        setSpeechFailed(true);
-        options.onSpeechEnd?.();
+        if (mySpeechId === speechIdRef.current) {
+          setIsSpeaking(false);
+          setQuestionPhase("READY_TO_ANSWER");
+          setActiveWord("");
+          setWordTimings([]);
+          setSpeechFailed(true);
+          options.onSpeechEnd?.();
+        }
         return false;
       }
     },
@@ -254,6 +297,7 @@ export function useAvatarVoice(
 
   const handleAvatarSpeechEnd = useCallback(() => {
     setActiveWord("");
+    setWordTimings([]);
     setIsSpeaking(false);
     setQuestionPhase("READY_TO_ANSWER");
   }, []);
@@ -262,6 +306,8 @@ export function useAvatarVoice(
     stopSpeaking();
     setSpeechFailed(false);
     setActiveWord("");
+    setWordTimings([]);
+    setSpokenText("");
     setQuestionPhase("READY_TO_ANSWER");
   }, [stopSpeaking]);
 
@@ -271,8 +317,11 @@ export function useAvatarVoice(
     setQuestionPhase,
     speechFailed,
     activeWord,
+    wordTimings,
+    spokenText,
+    speechGeneration,
     analyserNode,
-    audioElement: persistentAudioRef.current,
+    audioElement: audioElementState,
     questionAudioBlob: null,
     speakText,
     speakQuestion,

@@ -808,17 +808,23 @@ async def generate_speech_audio(req: TTSRequest):
     """
     Generate natural, conversational human-flow audio for talking avatar.
     Uses Microsoft Neural TTS with natural pacing, warm inflection, and conversational pauses.
-    Supports MP3 binary stream and PCM 24kHz 16-bit mono base64 chunks for HeyGen LiveAvatar Lite.
+    Supports:
+    - audio_format="mp3" (default): binary MP3 stream
+    - audio_format="mp3_timings": JSON with base64 MP3 + exact WordBoundary millisecond timings for phoneme-viseme sync
+    - audio_format="pcm24k": PCM 24kHz 16-bit mono base64 chunks for HeyGen LiveAvatar Lite
     """
     if not req.text or not req.text.strip():
         raise HTTPException(status_code=422, detail="Text cannot be empty")
         
     try:
         import edge_tts
+        import base64
         voice = req.voice or "en-US-AvaNeural"
         rate = req.rate or "-3%"
         pitch = req.pitch or "+0Hz"
-        is_pcm = (req.audio_format or "").lower() in ("pcm24k", "pcm")
+        fmt = (req.audio_format or "").lower()
+        is_pcm = fmt in ("pcm24k", "pcm")
+        is_mp3_timings = fmt in ("mp3_timings", "mp3_with_timings")
 
         # Apply natural conversational speech formatting
         spoken_text = format_conversational_speech_flow(req.text) if req.conversational_flow else req.text.strip()
@@ -827,6 +833,7 @@ async def generate_speech_audio(req: TTSRequest):
         cache_key = hashlib.sha256(f"{voice}:{rate}:{pitch}:{spoken_text}".encode()).hexdigest()
         cache_mp3_path = os.path.join(TTS_CACHE_DIR, f"{cache_key}.mp3")
         cache_pcm_path = os.path.join(TTS_CACHE_DIR, f"{cache_key}_pcm24k.json")
+        cache_timings_path = os.path.join(TTS_CACHE_DIR, f"{cache_key}_timings.json")
 
         loop = asyncio.get_event_loop()
 
@@ -839,22 +846,55 @@ async def generate_speech_audio(req: TTSRequest):
             except Exception:
                 pass
 
-        # Check MP3 cache
+        # Check MP3 + WordBoundary timings cache
+        word_timings = None
+        if is_mp3_timings and os.path.exists(cache_mp3_path) and os.path.exists(cache_timings_path):
+            try:
+                async with aiofiles.open(cache_mp3_path, "rb") as f:
+                    audio_bytes = await f.read()
+                async with aiofiles.open(cache_timings_path, "r", encoding="utf-8") as f:
+                    word_timings = json.loads(await f.read())
+                if audio_bytes and isinstance(word_timings, list):
+                    return {
+                        "status": "success",
+                        "mime_type": "audio/mpeg",
+                        "spoken_text": spoken_text,
+                        "word_timings": word_timings,
+                        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                    }
+            except Exception:
+                word_timings = None
+
+        # Check MP3 cache (if not needing fresh timings)
         audio_bytes = None
-        if os.path.exists(cache_mp3_path) and os.path.getsize(cache_mp3_path) > 0:
+        if not is_mp3_timings and os.path.exists(cache_mp3_path) and os.path.getsize(cache_mp3_path) > 0:
             async with aiofiles.open(cache_mp3_path, "rb") as f:
                 audio_bytes = await f.read()
 
-        if not audio_bytes:
-            # ── Synthesise via Edge-TTS with conversational prosody & retry ──────────
+        if not audio_bytes or (is_mp3_timings and word_timings is None):
+            # ── Synthesise via Edge-TTS with WordBoundary timestamps & retry ──────────
             audio_chunks = []
+            collected_timings = []
             for attempt in range(2):
                 try:
-                    communicate = edge_tts.Communicate(spoken_text, voice, rate=rate, pitch=pitch)
+                    communicate = edge_tts.Communicate(
+                        spoken_text,
+                        voice,
+                        rate=rate,
+                        pitch=pitch,
+                        boundary="WordBoundary",
+                    )
                     audio_chunks = []
+                    collected_timings = []
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             audio_chunks.append(chunk["data"])
+                        elif chunk["type"] == "WordBoundary":
+                            collected_timings.append({
+                                "word": chunk.get("text", ""),
+                                "offset_ms": round(chunk.get("offset", 0) / 10000.0, 2),
+                                "duration_ms": round(chunk.get("duration", 0) / 10000.0, 2),
+                            })
                     if audio_chunks:
                         break
                 except Exception as tts_err:
@@ -863,25 +903,33 @@ async def generate_speech_audio(req: TTSRequest):
                     await asyncio.sleep(0.5)
                     
             audio_bytes = b"".join(audio_chunks)
+            word_timings = collected_timings
             if not audio_bytes:
                 raise HTTPException(status_code=503, detail="TTS service returned empty audio stream.")
 
-            # Write MP3 to cache
+            # Write MP3 and WordBoundary timings to cache
             async with aiofiles.open(cache_mp3_path, "wb") as f:
                 await f.write(audio_bytes)
+            if word_timings:
+                async with aiofiles.open(cache_timings_path, "w", encoding="utf-8") as f:
+                    await f.write(json.dumps(word_timings))
 
         if is_pcm:
             pcm_result = await loop.run_in_executor(None, _convert_to_pcm24k_chunks, audio_bytes)
-            # Write PCM result to cache
             async with aiofiles.open(cache_pcm_path, "w") as f:
                 await f.write(json.dumps(pcm_result))
             return pcm_result
 
+        if is_mp3_timings:
+            return {
+                "status": "success",
+                "mime_type": "audio/mpeg",
+                "spoken_text": spoken_text,
+                "word_timings": word_timings or [],
+                "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+            }
+
         return Response(content=audio_bytes, media_type="audio/mpeg")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"TTS synthesis unavailable: {str(e)}")
     except HTTPException:
         raise
     except Exception as e:

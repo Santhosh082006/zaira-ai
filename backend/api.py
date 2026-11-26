@@ -369,3 +369,33 @@ async def get_analysis_result(session_id: str):
         else:
             raise HTTPException(status_code=404, detail=f"Analysis session {session_id} not found.")
     return analysis_sessions[session_id]
+
+
+class SavePreviewPayload(BaseModel):
+    name: str
+    image_base64: str
+
+@app.post("/api/candidate/save-preview")
+async def save_candidate_preview(payload: SavePreviewPayload):
+    import base64
+    preview_dir = os.path.join(ROOT_DIR, "scratch", "previews")
+    os.makedirs(preview_dir, exist_ok=True)
+    brain_dir = r"C:\Users\SONTHOSH\.gemini\antigravity\brain\55fdf5f2-bddd-45be-81f6-667959337821"
+    
+    data = payload.image_base64
+    if "," in data:
+        data = data.split(",", 1)[1]
+    raw_bytes = base64.b64decode(data)
+    
+    file_path = os.path.join(preview_dir, f"{payload.name}.png")
+    with open(file_path, "wb") as f:
+        f.write(raw_bytes)
+        
+    brain_file_path = os.path.join(brain_dir, f"{payload.name}.png")
+    try:
+        with open(brain_file_path, "wb") as f:
+            f.write(raw_bytes)
+    except Exception as e:
+        print("Error saving to brain dir:", e)
+        
+    return {"status": "ok", "path": file_path, "brain_path": brain_file_path}

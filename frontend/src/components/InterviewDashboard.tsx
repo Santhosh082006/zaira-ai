@@ -275,6 +275,10 @@ export default function InterviewDashboard() {
                   isThinking={false}
                   analyserNode={avatarVoice.analyserNode}
                   audioElement={avatarVoice.audioElement}
+                  wordTimings={avatarVoice.wordTimings}
+                  spokenText={avatarVoice.spokenText}
+                  speechGeneration={avatarVoice.speechGeneration}
+                  currentWord={avatarVoice.activeWord}
                   onSkip={handleStopSpeaking}
                   onSpeechEnd={handleSpeechConcluded}
                   questionId={currentQuestion.id}
@@ -370,6 +374,10 @@ export default function InterviewDashboard() {
                       isThinking={appState === "PROCESSING"}
                       analyserNode={avatarVoice.analyserNode}
                       audioElement={avatarVoice.audioElement}
+                      wordTimings={avatarVoice.wordTimings}
+                      spokenText={avatarVoice.spokenText}
+                      speechGeneration={avatarVoice.speechGeneration}
+                      currentWord={avatarVoice.activeWord}
                       onSkip={handleStopSpeaking}
                       onSpeechEnd={handleSpeechConcluded}
                       questionId={currentQuestion.id}
