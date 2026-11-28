@@ -15,29 +15,32 @@ import {
 // Module-level GLTF model cache with versioning to bust browser cache
 const MODEL_VERSION = "20261126_v18";
 const MODEL_URL = `/models/zaira.glb?v=${MODEL_VERSION}`;
-let cachedGLTF: any = null;
-let gltfPromise: Promise<any> | null = null;
+const cachedGLTFs = new Map<string, any>();
+const gltfPromises = new Map<string, Promise<any>>();
 
-function getZairaGLTF(loader: GLTFLoader): Promise<any> {
+function getAvatarGLTF(loader: GLTFLoader, modelUrl: string): Promise<any> {
+  const cachedGLTF = cachedGLTFs.get(modelUrl);
   if (cachedGLTF) {
     return Promise.resolve(cachedGLTF);
   }
-  if (!gltfPromise) {
-    gltfPromise = new Promise((resolve, reject) => {
+  const existingPromise = gltfPromises.get(modelUrl);
+  if (existingPromise) return existingPromise;
+
+  const gltfPromise = new Promise<any>((resolve, reject) => {
       loader.load(
-        MODEL_URL,
+        modelUrl,
         (gltf) => {
-          cachedGLTF = gltf;
+          cachedGLTFs.set(modelUrl, gltf);
           resolve(gltf);
         },
         undefined,
         (err) => {
-          gltfPromise = null;
+          gltfPromises.delete(modelUrl);
           reject(err);
         }
       );
-    });
-  }
+  });
+  gltfPromises.set(modelUrl, gltfPromise);
   return gltfPromise;
 }
 
@@ -52,6 +55,7 @@ export interface Zaira3DAvatarProps {
   speechGeneration?: number;
   activeWord?: string;
   mode?: "hero" | "compact";
+  modelUrl?: string;
   className?: string;
   onLoaded?: () => void;
 }
@@ -72,13 +76,14 @@ export function Zaira3DAvatar({
   speechGeneration = 0,
   activeWord = "",
   mode = "hero",
+  modelUrl = MODEL_URL,
   className = "",
   onLoaded,
 }: Zaira3DAvatarProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [isLoading, setIsLoading] = useState<boolean>(!cachedGLTF);
+  const [isLoading, setIsLoading] = useState<boolean>(!cachedGLTFs.has(modelUrl));
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Keep latest props in refs to prevent unnecessary Three.js teardown & re-loading
@@ -344,7 +349,8 @@ export function Zaira3DAvatar({
 
     // 5. Load 3D Model (/models/zaira.glb) with module caching to eliminate loading screens
     const loader = new GLTFLoader();
-    getZairaGLTF(loader)
+    setIsLoading(!cachedGLTFs.has(modelUrl));
+    getAvatarGLTF(loader, modelUrl)
       .then((gltf) => {
         if (isDisposed) return;
 
@@ -843,7 +849,7 @@ export function Zaira3DAvatar({
         scene.clear();
       }
     };
-  }, [mode, setMorphTarget, onLoaded]);
+  }, [mode, modelUrl, setMorphTarget, onLoaded]);
 
   return (
     <div

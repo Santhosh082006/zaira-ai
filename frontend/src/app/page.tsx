@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { UploadCloud, CheckCircle2, Video, FileVideo, BrainCircuit, SplitSquareHorizontal, Sparkles, AlertCircle } from "lucide-react";
+import Link from "next/link";
+import { UploadCloud, CheckCircle2, Video, FileVideo, BrainCircuit, SplitSquareHorizontal, Sparkles, AlertCircle, FileSearch } from "lucide-react";
 import { motion, AnimatePresence } from "../lib/motion";
 import axios from "axios";
 import { getApiBase, getWsBase } from "../lib/apiConfig";
@@ -159,6 +160,9 @@ export default function Dashboard() {
           >
             Compare & Assess
           </button>
+          <Link href="/resume-analyzer" className="px-3 py-1.5 rounded-lg whitespace-nowrap transition-all font-medium text-zinc-400 hover:text-white">
+            Resume Analyzer
+          </Link>
         </div>
       </div>
 
@@ -240,6 +244,10 @@ export default function Dashboard() {
                   <SplitSquareHorizontal className={`w-4 h-4 shrink-0 ${activeTab === "compare" ? "text-emerald-400" : "text-zinc-500"}`} />
                   <span className="text-sm">Compare & Assess</span>
                 </button>
+                <Link href="/resume-analyzer" className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all text-left text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03]">
+                  <FileSearch className="w-4 h-4 shrink-0 text-zinc-500" />
+                  <span className="text-sm">Resume Analyzer</span>
+                </Link>
               </div>
             </div>
           </nav>

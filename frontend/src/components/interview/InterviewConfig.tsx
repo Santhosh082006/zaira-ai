@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import {
   Briefcase,
   Users,
@@ -9,13 +9,9 @@ import {
   Sparkles,
   ArrowRight,
   CheckCircle,
-  Camera,
-  Mic,
   Volume2,
   CheckCircle2,
   AlertCircle,
-  VideoOff,
-  MicOff,
   FileText,
   Building2,
   UploadCloud,
@@ -146,113 +142,6 @@ export function InterviewConfig({
     } finally {
       setIsParsingJd(false);
     }
-  };
-
-  // Pre-flight hardware check state
-  const [isTestingHardware, setIsTestingHardware] = useState<boolean>(false);
-  const [hardwareError, setHardwareError] = useState<string | null>(null);
-  const [hasCamera, setHasCamera] = useState<boolean>(false);
-  const [hasMic, setHasMic] = useState<boolean>(false);
-  const [audioLevel, setAudioLevel] = useState<number>(0);
-
-  const testVideoRef = useRef<HTMLVideoElement | null>(null);
-  const testStreamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-
-  const stopHardwareTest = () => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    if (testStreamRef.current) {
-      testStreamRef.current.getTracks().forEach((track) => track.stop());
-      testStreamRef.current = null;
-    }
-    if (testVideoRef.current) {
-      testVideoRef.current.srcObject = null;
-    }
-    setIsTestingHardware(false);
-    setAudioLevel(0);
-  };
-
-  const startHardwareTest = async () => {
-    setHardwareError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 360 },
-        audio: true,
-      });
-
-      testStreamRef.current = stream;
-      setHasCamera(stream.getVideoTracks().length > 0);
-      setHasMic(stream.getAudioTracks().length > 0);
-      setIsTestingHardware(true);
-
-      if (testVideoRef.current) {
-        testVideoRef.current.srcObject = stream;
-      }
-
-      // Audio Level Analyser setup
-      if (typeof window !== "undefined") {
-        const AudioCtx =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (AudioCtx) {
-          const audioCtx = new AudioCtx();
-          audioContextRef.current = audioCtx;
-          const source = audioCtx.createMediaStreamSource(stream);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 256;
-          source.connect(analyser);
-
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-          const updateVolume = () => {
-            if (!testStreamRef.current) return;
-            analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-              sum += dataArray[i];
-            }
-            const average = sum / dataArray.length;
-            const normalized = Math.min(100, Math.round((average / 128) * 100));
-            setAudioLevel(normalized);
-            animationFrameRef.current = requestAnimationFrame(updateVolume);
-          };
-
-          updateVolume();
-        }
-      }
-    } catch (err: unknown) {
-      console.warn("Hardware test access error:", err);
-      // Fallback: try audio only
-      try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        testStreamRef.current = audioStream;
-        setHasCamera(false);
-        setHasMic(true);
-        setIsTestingHardware(true);
-      } catch (audioErr) {
-        setHardwareError("Microphone or Camera access was denied. Please check your browser permissions.");
-        setIsTestingHardware(false);
-      }
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      stopHardwareTest();
-    };
-  }, []);
-
-  const handleStartSession = () => {
-    stopHardwareTest();
-    onStart();
   };
 
   return (
@@ -954,114 +843,7 @@ export function InterviewConfig({
         )}
       </div>
 
-      {/* ============================================================== */}
-      {/* Step D: Pre-Flight Hardware Check (Mic & Camera Test)          */}
-      {/* ============================================================== */}
-      <div className="p-5 md:p-6 rounded-2xl border border-white/[0.08] bg-white/[0.02] space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="w-6 h-6 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold flex items-center justify-center">
-              D
-            </span>
-            <div>
-              <h3 className="text-sm font-semibold text-white">Pre-Flight Hardware Check</h3>
-              <p className="text-xs text-zinc-400">Verify your microphone input and camera framing before entering.</p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={isTestingHardware ? stopHardwareTest : startHardwareTest}
-            className={`px-4 py-2 rounded-xl text-xs font-medium transition-all inline-flex items-center gap-2 ${
-              isTestingHardware
-                ? "bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25"
-                : "bg-white/[0.05] border border-white/10 text-zinc-200 hover:bg-white/[0.09] hover:text-white"
-            }`}
-          >
-            {isTestingHardware ? (
-              <>
-                <VideoOff className="w-3.5 h-3.5 text-amber-400" />
-                <span>Stop Equipment Test</span>
-              </>
-            ) : (
-              <>
-                <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Test Camera & Mic</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {hardwareError && (
-          <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-300 flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-            <span>{hardwareError}</span>
-          </div>
-        )}
-
-        {/* Live Equipment Test Panel */}
-        {isTestingHardware && (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-3 border-t border-white/[0.06] animate-fadeIn">
-            {/* Camera Preview */}
-            <div className="md:col-span-6 relative aspect-video rounded-xl overflow-hidden bg-black border border-white/10 shadow-inner flex items-center justify-center">
-              {hasCamera ? (
-                <video
-                  ref={testVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover transform scale-x-[-1]"
-                />
-              ) : (
-                <div className="text-center p-6 text-zinc-400 space-y-2">
-                  <VideoOff className="w-8 h-8 mx-auto text-zinc-500" />
-                  <p className="text-xs">No camera detected. Audio-only mode enabled.</p>
-                </div>
-              )}
-              <div className="absolute top-2.5 left-2.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-mono text-zinc-300 border border-white/10 flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${hasCamera ? "bg-emerald-400" : "bg-amber-400"}`} />
-                <span>{hasCamera ? "Camera Framing Active" : "Audio Mode"}</span>
-              </div>
-            </div>
-
-            {/* Microphone Volume Meter */}
-            <div className="md:col-span-6 flex flex-col justify-between p-4 rounded-xl bg-black/40 border border-white/10 space-y-4">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="flex items-center gap-1.5 text-zinc-200">
-                    <Mic className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Microphone Input Level</span>
-                  </span>
-                  <span className="font-mono text-emerald-400 text-[11px]">{audioLevel}%</span>
-                </div>
-                <p className="text-[11px] text-zinc-400">Speak into your microphone. The bar should respond in real time.</p>
-              </div>
-
-              {/* Dynamic Equalizer Bar */}
-              <div className="space-y-1.5">
-                <div className="w-full h-3.5 rounded-full bg-white/[0.06] overflow-hidden p-0.5 border border-white/10">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-75"
-                    style={{ width: `${Math.max(4, audioLevel)}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[9px] font-mono text-zinc-500">
-                  <span>Silent</span>
-                  <span>Optimal Speech</span>
-                  <span>Peak</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Hardware check active. Speak normally to calibrate input volume.</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Step E: Start Interview CTA */}
+      {/* Initialize first; the device check follows in its own step. */}
       <div className="pt-6 border-t border-white/[0.07] flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="text-xs text-white/50 leading-relaxed flex flex-wrap items-center gap-2">
           {isLiveAvatarConfigured ? (
@@ -1078,10 +860,10 @@ export function InterviewConfig({
         </div>
         <button
           type="button"
-          onClick={handleStartSession}
+          onClick={onStart}
           className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold rounded-2xl shadow-[0_0_25px_rgba(16,185,129,0.25)] transition-all transform hover:-translate-y-0.5 active:translate-y-0"
         >
-          <span>Initialize AI Session</span>
+          <span>Initialize Session</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

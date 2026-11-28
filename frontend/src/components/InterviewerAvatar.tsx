@@ -1,11 +1,9 @@
 "use client";
 
 import React, { useRef } from "react";
-import Image from "next/image";
-import { VolumeX, Radio, Sparkles, RefreshCw } from "lucide-react";
+import { Radio, Sparkles, RefreshCw } from "lucide-react";
 import { LiveAvatarDiagnostics } from "../hooks/useLiveAvatar";
 import { WordTiming } from "../lib/visemeEngine";
-import { Zaira3DAvatar } from "./Zaira3DAvatar";
 
 export interface InterviewerAvatarProps {
   isSpeaking: boolean;
@@ -16,7 +14,6 @@ export interface InterviewerAvatarProps {
   wordTimings?: WordTiming[];
   spokenText?: string;
   speechGeneration?: number;
-  onSkip?: () => void;
   onSpeechEnd?: () => void;
   statusLabel?: string;
   currentWord?: string;
@@ -36,8 +33,6 @@ export interface InterviewerAvatarProps {
   onReconnect?: () => void;
 }
 
-const DEFAULT_AVATAR = "/images/zaira-avatar.jpg";
-
 export function InterviewerAvatar({
   isSpeaking,
   isListening = false,
@@ -48,7 +43,6 @@ export function InterviewerAvatar({
   spokenText = "",
   speechGeneration = 0,
   currentWord = "",
-  onSkip,
   mode = "hero",
   examinerName = "Zaira",
   liveVideoRef,
@@ -179,20 +173,47 @@ export function InterviewerAvatar({
               </div>
             )}
 
-            {/* Real-Time 3D Digital Human Avatar (WebGL + Blendshape Viseme Lip-Sync) */}
+            {/* Neutral Interviewer Placeholder (3D Avatar Temporarily Removed) */}
             {!isVideoLiveReady && !isConnecting && (
-              <Zaira3DAvatar
-                isSpeaking={isSpeaking}
-                isListening={isListening}
-                isThinking={isThinking}
-                analyserNode={analyserNode}
-                audioElement={audioElement}
-                wordTimings={wordTimings}
-                spokenText={spokenText}
-                speechGeneration={speechGeneration}
-                activeWord={currentWord}
-                mode={mode}
-              />
+              <div
+                data-testid="neutral-avatar-placeholder"
+                className="w-full h-full flex flex-col items-center justify-center p-6 text-center select-none"
+              >
+                <div
+                  className={`relative flex items-center justify-center rounded-full border transition-all duration-300 ${
+                    mode === "compact" ? "w-16 h-16" : "w-24 h-24"
+                  } ${
+                    isSpeaking
+                      ? "border-emerald-400/40 bg-emerald-500/[0.06] shadow-[0_0_32px_rgba(16,185,129,0.12)]"
+                      : isThinking
+                      ? "border-amber-400/40 bg-amber-500/[0.06] shadow-[0_0_24px_rgba(251,191,36,0.10)]"
+                      : "border-white/10 bg-white/[0.03]"
+                  }`}
+                >
+                  {isSpeaking && (
+                    <span className="absolute inset-0 rounded-full border border-emerald-400/30 animate-ping opacity-40" />
+                  )}
+                  <span
+                    className={`font-mono font-semibold tracking-wider text-zinc-200 ${
+                      mode === "compact" ? "text-xl" : "text-3xl"
+                    }`}
+                  >
+                    {examinerName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="mt-4 space-y-1">
+                  <p className="text-sm font-medium text-zinc-200 font-mono">{examinerName}</p>
+                  <p className="text-xs text-zinc-400">
+                    {isThinking
+                      ? "Evaluating response..."
+                      : isSpeaking
+                      ? "Audio prompt active"
+                      : isListening
+                      ? "Ready & listening"
+                      : "AI Interviewer"}
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -200,19 +221,6 @@ export function InterviewerAvatar({
         {/* Elegant Bottom Shadow Vignette */}
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#040508] via-[#040508]/80 to-transparent pointer-events-none z-15" />
 
-        {/* Skip Audio Button (Bottom-Right, only while speaking) */}
-        {isSpeaking && onSkip && (
-          <div className="absolute bottom-4 right-4 z-20 pointer-events-auto">
-            <button
-              onClick={onSkip}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/75 hover:bg-black/95 text-zinc-300 hover:text-white rounded-xl text-xs font-medium border border-white/10 transition-all backdrop-blur-md shadow-lg font-mono"
-              aria-label="Skip question audio and proceed to answer"
-            >
-              <VolumeX className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Skip Speech</span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

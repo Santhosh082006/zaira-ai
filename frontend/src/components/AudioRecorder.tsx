@@ -41,6 +41,7 @@ interface AudioRecorderProps {
   disabled: boolean;
   questionId: string;
   autoStart?: boolean;
+  sharedMediaStream?: MediaStream | null;
 }
 
 export function AudioRecorder({
@@ -52,6 +53,7 @@ export function AudioRecorder({
   isProcessing,
   disabled,
   autoStart = false,
+  sharedMediaStream = null,
 }: AudioRecorderProps) {
   const {
     effectiveState,
@@ -78,6 +80,7 @@ export function AudioRecorder({
     isProcessing,
     disabled,
     autoStart,
+    sharedMediaStream,
   });
 
   return (
@@ -110,9 +113,6 @@ export function AudioRecorder({
               <p className="text-sm font-semibold text-zinc-200">Microphone Audio Mode Active</p>
               <p className="text-xs text-zinc-500 mt-0.5">Camera preview unavailable or disabled on this device</p>
             </div>
-            {effectiveState === "RECORDED" && mediaPreviewUrl && (
-              <audio src={mediaPreviewUrl} controls className="w-full max-w-md mt-4" />
-            )}
           </div>
         )}
 

@@ -349,7 +349,7 @@ export interface QuestionAuditItem {
   question_text: string;
   question_type: string;
   transcript: string;
-  score: number;
+  score: number | null;
   total_marks_awarded: number;
   total_max_marks: number;
   duration_sec: number;
@@ -366,7 +366,7 @@ export interface InterviewReport {
   interview_level: string;
   technical_domain?: string | null;
   custom_goal?: string | null;
-  overall_score: number;
+  overall_score: number | null;
   performance_level: string;
   summary_assessment: string;
   completion_status: string;

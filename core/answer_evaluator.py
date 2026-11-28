@@ -171,10 +171,10 @@ class AnswerEvaluator:
             state.claims_detected.extend(detected_claims)
             
         # Deduplicate state arrays
-        state.strengths = list(set(state.strengths))
-        state.weaknesses = list(set(state.weaknesses))
-        state.topics_discussed = list(set(state.topics_discussed))
-        state.claims_detected = list(set(state.claims_detected))
+        state.strengths = list(dict.fromkeys(state.strengths))
+        state.weaknesses = list(dict.fromkeys(state.weaknesses))
+        state.topics_discussed = list(dict.fromkeys(state.topics_discussed))
+        state.claims_detected = list(dict.fromkeys(state.claims_detected))
         
         # Update Competency Coverage with explicit rubrics & scores
         for comp_id in question.competencies:

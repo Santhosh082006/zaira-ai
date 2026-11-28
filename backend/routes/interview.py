@@ -294,10 +294,13 @@ def get_interview_report(session_id: str):
     else:
         total_awarded = sum(r.total_marks_awarded for r in records)
         total_max = sum(r.total_max_marks for r in records)
-        overall_score = round((total_awarded / total_max) * 100, 1) if total_max > 0 else 0.0
+        overall_score = round((total_awarded / total_max) * 100, 1) if total_max > 0 else None
 
     # Qualitative Performance Rating
-    if overall_score >= 85:
+    if overall_score is None:
+        performance_level = "Insufficient Evidence"
+        summary_assessment = "No scoreable spoken content was available. Check the recording and microphone, then retry before interpreting performance."
+    elif overall_score >= 85:
         performance_level = "Exemplary Delivery"
         summary_assessment = "Demonstrated commanding technical depth, clear structural articulation, and steady composure across all assessed dimensions."
     elif overall_score >= 70:
@@ -395,7 +398,7 @@ def get_interview_report(session_id: str):
                 "exemplary_example": c.exemplary_example,
             })
 
-        q_score = round((r.overall_answer_quality or 0.0) * 100) if r.overall_answer_quality is not None else 0
+        q_score = round(r.overall_answer_quality * 100) if r.overall_answer_quality is not None else None
         wpm = (r.speech_metrics or {}).get("speaking_rate_wpm") or (r.speech_metrics or {}).get("wpm")
 
         actionable_list = []

@@ -1,13 +1,13 @@
 "use client";
 
 import React from "react";
-import { AlertCircle, Sparkles, Volume2, ArrowRight } from "lucide-react";
+import { AlertCircle, Sparkles, ArrowRight } from "lucide-react";
 import { AudioRecorder } from "./AudioRecorder";
-import { InterviewerAvatar } from "./InterviewerAvatar";
 import { InterviewConfig } from "./interview/InterviewConfig";
 import { EvaluationPanel } from "./interview/EvaluationPanel";
 import { InterviewCompleted } from "./interview/InterviewCompleted";
 import { useInterviewSession } from "../hooks/useInterviewSession";
+import { InterviewPreflight } from "./interview/InterviewPreflight";
 import { useAvatarVoice } from "../hooks/useAvatarVoice";
 import { useLiveAvatar } from "../hooks/useLiveAvatar";
 
@@ -46,6 +46,22 @@ export default function InterviewDashboard() {
   } = useInterviewSession();
 
   const [questionPhase, setQuestionPhase] = React.useState<"SPEAKING" | "READY_TO_ANSWER">("SPEAKING");
+  const [showPreflight, setShowPreflight] = React.useState(false);
+  const [interviewMediaStream, setInterviewMediaStream] = React.useState<MediaStream | null>(null);
+  const interviewMediaStreamRef = React.useRef<MediaStream | null>(null);
+
+  React.useEffect(() => () => {
+    interviewMediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    interviewMediaStreamRef.current = null;
+  }, []);
+
+  React.useEffect(() => {
+    if (appState === "COMPLETED" && interviewMediaStreamRef.current) {
+      interviewMediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      interviewMediaStreamRef.current = null;
+      setInterviewMediaStream(null);
+    }
+  }, [appState]);
 
   // Acoustic guard delay: wait 500ms after audio ends so room echo/speakers are quiet before mic opens
   const handleSpeechConcluded = React.useCallback(() => {
@@ -126,12 +142,6 @@ export default function InterviewDashboard() {
     setQuestionPhase("READY_TO_ANSWER");
   }, [liveAvatar, avatarVoice]);
 
-  const handleReplayQuestion = React.useCallback(() => {
-    if (!currentQuestion) return;
-    setQuestionPhase("SPEAKING");
-    articulatePrompt(currentQuestion.question_text);
-  }, [currentQuestion, articulatePrompt]);
-
   const handleStart = () => {
     setQuestionPhase("SPEAKING");
     startSession();
@@ -181,7 +191,18 @@ export default function InterviewDashboard() {
         {/* ============================================================== */}
         {/* VIEW 1: CONFIGURATION / ONBOARDING SCREEN                       */}
         {/* ============================================================== */}
-        {appState === "CONFIG" && (
+        {appState === "CONFIG" && showPreflight && (
+          <InterviewPreflight
+            onBack={() => setShowPreflight(false)}
+            onContinue={(stream) => {
+              interviewMediaStreamRef.current = stream;
+              setInterviewMediaStream(stream);
+              setShowPreflight(false);
+              handleStart();
+            }}
+          />
+        )}
+        {appState === "CONFIG" && !showPreflight && (
           <InterviewConfig
             interviewType={interviewType}
             setInterviewType={setInterviewType}
@@ -197,7 +218,7 @@ export default function InterviewDashboard() {
             setInterviewLevel={setInterviewLevel}
             assessmentGoals={assessmentGoals}
             toggleGoal={toggleGoal}
-            onStart={handleStart}
+            onStart={() => setShowPreflight(true)}
             isLiveAvatarConfigured={liveAvatar.isConfigured}
           />
         )}
@@ -267,30 +288,6 @@ export default function InterviewDashboard() {
                   </button>
                 </div>
 
-                {/* Hero Examiner Stage */}
-                <InterviewerAvatar
-                  mode="hero"
-                  isSpeaking={isAvatarSpeaking}
-                  isListening={false}
-                  isThinking={false}
-                  analyserNode={avatarVoice.analyserNode}
-                  audioElement={avatarVoice.audioElement}
-                  wordTimings={avatarVoice.wordTimings}
-                  spokenText={avatarVoice.spokenText}
-                  speechGeneration={avatarVoice.speechGeneration}
-                  currentWord={avatarVoice.activeWord}
-                  onSkip={handleStopSpeaking}
-                  onSpeechEnd={handleSpeechConcluded}
-                  questionId={currentQuestion.id}
-                  liveVideoRef={liveAvatar.attachVideo}
-                  isLiveAvatarConnected={liveAvatar.state === "CONNECTED" || liveAvatar.state === "SPEAKING"}
-                  isLiveAvatarConfigured={liveAvatar.isConfigured}
-                  liveAvatarState={liveAvatar.state}
-                  statusMessage={liveAvatar.statusMessage}
-                  hasActiveStream={liveAvatar.hasActiveStream}
-                  onReconnect={() => liveAvatar.connect()}
-                />
-
                 {/* Spoken Question Text Subtitle Card */}
                 <div className="p-6 md:p-7 rounded-2xl bg-zinc-950/80 border border-white/10 backdrop-blur-xl text-center space-y-2 shadow-xl">
                   <div className="flex items-center justify-center gap-2 text-[11px] font-mono uppercase tracking-widest text-teal-400">
@@ -327,14 +324,6 @@ export default function InterviewDashboard() {
                       )}
                     </div>
 
-                    <button
-                      onClick={handleReplayQuestion}
-                      className="self-start sm:self-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium bg-white/[0.05] hover:bg-white/[0.1] text-zinc-200 hover:text-white border border-white/10 transition-all"
-                      aria-label="Replay examiner question"
-                    >
-                      <Volume2 className="w-3.5 h-3.5 text-teal-400" />
-                      <span>Replay Question Voice</span>
-                    </button>
                   </div>
 
                   <div>
@@ -355,6 +344,7 @@ export default function InterviewDashboard() {
                       key={currentQuestion.id}
                       questionId={currentQuestion.id}
                       autoStart={true}
+                      sharedMediaStream={interviewMediaStream}
                       onRecordingStart={handleStopSpeaking}
                       onRecordingComplete={handleAudioSubmit}
                       onLiveTranscriptUpdate={sendLiveTranscript}
@@ -367,29 +357,6 @@ export default function InterviewDashboard() {
 
                   {/* Right Column (4 cols): Attentive Examiner */}
                   <div className="lg:col-span-4 space-y-4">
-                    <InterviewerAvatar
-                      mode="compact"
-                      isSpeaking={isAvatarSpeaking}
-                      isListening={appState !== "PROCESSING"}
-                      isThinking={appState === "PROCESSING"}
-                      analyserNode={avatarVoice.analyserNode}
-                      audioElement={avatarVoice.audioElement}
-                      wordTimings={avatarVoice.wordTimings}
-                      spokenText={avatarVoice.spokenText}
-                      speechGeneration={avatarVoice.speechGeneration}
-                      currentWord={avatarVoice.activeWord}
-                      onSkip={handleStopSpeaking}
-                      onSpeechEnd={handleSpeechConcluded}
-                      questionId={currentQuestion.id}
-                      liveVideoRef={liveAvatar.attachVideo}
-                      isLiveAvatarConnected={liveAvatar.state === "CONNECTED" || liveAvatar.state === "SPEAKING"}
-                      isLiveAvatarConfigured={liveAvatar.isConfigured}
-                      liveAvatarState={liveAvatar.state}
-                      statusMessage={liveAvatar.statusMessage}
-                      hasActiveStream={liveAvatar.hasActiveStream}
-                      onReconnect={() => liveAvatar.connect()}
-                    />
-
                     {/* Examiner Protocol Card */}
                     <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] space-y-2 text-xs">
                       <div className="font-semibold text-white flex items-center gap-2">

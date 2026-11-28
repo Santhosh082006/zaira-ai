@@ -312,10 +312,10 @@ def generate_structured_evaluation(
             RubricCriterionResult(
                 criterion_id="communication_clarity",
                 criterion_name="Communication Clarity & Articulation",
-                max_marks=2.0,
-                marks_awarded=1.0,
-                deduction=1.0,
-                status="partial_credit",
+                max_marks=0.0,
+                marks_awarded=0.0,
+                deduction=0.0,
+                status="not_assessed",
                 evidence_quote=cleaned_t or "[No audible speech]",
                 reason_for_deduction="Audio was inaudible or interrupted by transmission artifacts.",
                 improvement_advice="Speak with clear articulation into the microphone at a steady volume.",
@@ -342,15 +342,15 @@ def generate_structured_evaluation(
             is_garbled_transcript=True,
             garbled_reason=glitch_err_msg,
             rubric_criteria=rubric_criteria,
-            total_max_marks=2.0,
-            total_marks_awarded=1.0,
-            relevance=0.0,
-            clarity=0.5,
-            structure=0.0,
-            evidence_quality=0.0,
-            completeness=0.0,
+            total_max_marks=0.0,
+            total_marks_awarded=0.0,
+            relevance=None,
+            clarity=None,
+            structure=None,
+            evidence_quality=None,
+            completeness=None,
             technical_accuracy=None,
-            overall_quality=0.5,
+            overall_quality=None,
             strengths=[],
             areas_to_improve=["Audio input was disrupted by inaudible fragments or transmission noise."],
             recommendations=["Check that your microphone is securely connected and speak clearly into the device."],
@@ -512,9 +512,6 @@ def generate_structured_evaluation(
         evaluation = StructuredEvaluation(**data)
         
         # 6. Post-processing Arithmetic & Rubric Consistency Enforcer
-        # Guarantee default criteria exist if LLM omitted them
-        existing_criteria_ids = {c.criterion_id for c in evaluation.rubric_criteria}
-        
         is_tech = (interview_type == "technical" or question.question_type == "technical")
         default_criteria_defs = [
             ("technical_correctness", "Technical Correctness & Domain Accuracy", 4.0 if is_tech else 2.0),
@@ -523,7 +520,9 @@ def generate_structured_evaluation(
             ("evidence_grounding", "Evidence & Concrete Grounding", 1.0)
         ]
         
-        # If rubric criteria is empty or missing required dimensions, populate them
+        # When no criteria are returned, derive a conservative rubric from the
+        # normalized dimensions. Do not allow duplicate/unknown criteria to
+        # inflate the score or let model-chosen weights change its denominator.
         if not evaluation.rubric_criteria:
             evaluation.rubric_criteria = []
             for cid, cname, max_m in default_criteria_defs:
@@ -554,10 +553,19 @@ def generate_structured_evaluation(
                     exemplary_example="Provide a clear, direct explanation demonstrating full domain mastery." if ded > 0 else None
                 ))
         
-        # Enforce exact arithmetic on rubric criteria & verify evidence quotes
+        # Enforce canonical criteria, fixed weights, exact arithmetic and quotes.
         valid_criteria = []
+        canonical_defs = {cid: (cname, max_m) for cid, cname, max_m in default_criteria_defs}
+        seen_criteria_ids = set()
         for c in evaluation.rubric_criteria:
-            c.max_marks = max(0.0, float(c.max_marks))
+            canonical = canonical_defs.get(c.criterion_id)
+            if canonical is None or c.criterion_id in seen_criteria_ids:
+                lim_msg = f"Ignored unsupported or duplicate rubric criterion '{c.criterion_id}'."
+                if lim_msg not in evaluation.evaluation_limitations:
+                    evaluation.evaluation_limitations.append(lim_msg)
+                continue
+            seen_criteria_ids.add(c.criterion_id)
+            c.criterion_name, c.max_marks = canonical
             c.marks_awarded = max(0.0, min(c.max_marks, float(c.marks_awarded)))
             c.deduction = round(max(0.0, c.max_marks - c.marks_awarded), 2)
             
@@ -613,6 +621,18 @@ def generate_structured_evaluation(
                 else:
                     ev.excerpt = None
 
+        # Evidence excerpts are also presented as transcript-backed examples.
+        verified_excerpts = []
+        for excerpt in evaluation.evidence_excerpts:
+            verified = verify_and_align_evidence_quote(excerpt, cleaned_t)
+            if verified and verified not in verified_excerpts:
+                verified_excerpts.append(verified)
+            elif excerpt:
+                lim_msg = "Discarded an evidence excerpt that could not be aligned to the transcript."
+                if lim_msg not in evaluation.evaluation_limitations:
+                    evaluation.evaluation_limitations.append(lim_msg)
+        evaluation.evidence_excerpts = verified_excerpts
+
         # Exact arithmetic sum
         assessed_criteria = [c for c in evaluation.rubric_criteria if c.status != "not_assessed"]
         evaluation.total_max_marks = sum(c.max_marks for c in assessed_criteria)
@@ -621,7 +641,7 @@ def generate_structured_evaluation(
         if evaluation.total_max_marks > 0:
             evaluation.overall_quality = round(evaluation.total_marks_awarded / evaluation.total_max_marks, 2)
         else:
-            evaluation.overall_quality = 0.0
+            evaluation.overall_quality = None
             
         # Force bounds on numerical scores
         def bound_score(v):

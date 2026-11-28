@@ -8,6 +8,7 @@ import { Zaira3DAvatar } from "../../components/Zaira3DAvatar";
 import { useAvatarVoice } from "../../hooks/useAvatarVoice";
 
 type AnglePreset = "front" | "three_quarter" | "profile" | "eyes_closeup" | "upper_body";
+const CANDIDATE_MODEL_URL = "/models/candidate_mpfb_updated.glb";
 
 interface PresetConfig {
   name: string;
@@ -159,7 +160,7 @@ export default function CandidatePreviewPage() {
     // 5. Load Candidate MPFB Model
     const loader = new GLTFLoader();
     loader.load(
-      "/models/zaira.glb",
+      CANDIDATE_MODEL_URL,
       (gltf) => {
         if (isDisposed) return;
         try {
@@ -393,6 +394,7 @@ export default function CandidatePreviewPage() {
               speechGeneration={avatarVoice.speechGeneration}
               activeWord={avatarVoice.activeWord}
               mode="hero"
+              modelUrl={CANDIDATE_MODEL_URL}
             />
           </div>
 

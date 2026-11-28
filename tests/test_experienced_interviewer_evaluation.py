@@ -300,6 +300,9 @@ class TestExperiencedInterviewerEvaluation(unittest.TestCase):
         self.assertEqual(tech_crit.status, "not_assessed", "Technical accuracy must be marked not_assessed")
         self.assertEqual(tech_crit.max_marks, 0.0, "Unassessed technical criterion must have 0 max marks to prevent unfair penalty")
         self.assertEqual(tech_crit.deduction, 0.0, "Zero deduction for unassessed technical criterion")
+        self.assertTrue(all(c.status == "not_assessed" and c.max_marks == 0.0 for c in evaluation.rubric_criteria))
+        self.assertEqual(evaluation.total_max_marks, 0.0)
+        self.assertIsNone(evaluation.overall_quality, "A transcription failure must not be represented as a candidate score")
         
         # Competencies must be marked not_assessed or insufficient without score penalty
         for ce in evaluation.competency_evidence:

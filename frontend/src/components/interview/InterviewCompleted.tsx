@@ -75,7 +75,8 @@ export function InterviewCompleted({ sessionId, onReset }: InterviewCompletedPro
     return `${m}m ${s}s`;
   };
 
-  const getScoreColor = (score: number) => {
+  const getScoreColor = (score: number | null) => {
+    if (score === null) return "text-zinc-400 border-zinc-500/30 bg-zinc-500/10";
     if (score >= 85) return "text-emerald-400 border-emerald-500/30 bg-emerald-500/10";
     if (score >= 70) return "text-teal-300 border-teal-500/30 bg-teal-500/10";
     if (score >= 55) return "text-amber-300 border-amber-500/30 bg-amber-500/10";
@@ -196,7 +197,7 @@ export function InterviewCompleted({ sessionId, onReset }: InterviewCompletedPro
           <div className="md:col-span-5 flex items-center gap-5">
             <div className={`w-28 h-28 rounded-2xl border-2 flex flex-col items-center justify-center shrink-0 ${getScoreColor(overall_score)}`}>
               <span className="text-4xl font-mono font-bold tracking-tight">
-                {Math.round(overall_score)}
+                {overall_score === null ? "N/A" : Math.round(overall_score)}
               </span>
               <span className="text-[10px] font-mono uppercase tracking-widest opacity-70">
                 Score / 100
@@ -438,10 +439,10 @@ export function InterviewCompleted({ sessionId, onReset }: InterviewCompletedPro
                     <div className="flex items-center gap-3 shrink-0">
                       <div className="text-right">
                         <span className="text-sm font-mono font-bold text-white print:text-black">
-                          {qa.total_marks_awarded} / {qa.total_max_marks}
+                          {qa.total_max_marks > 0 ? `${qa.total_marks_awarded} / ${qa.total_max_marks}` : "Not assessed"}
                         </span>
                         <span className="block text-[10px] font-mono text-zinc-400">
-                          {qa.score}%
+                          {qa.score === null ? "Not assessed" : `${qa.score}%`}
                         </span>
                       </div>
                       {isExpanded ? (

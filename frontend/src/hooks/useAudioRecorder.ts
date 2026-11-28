@@ -11,6 +11,7 @@ export interface UseAudioRecorderOptions {
   isProcessing?: boolean;
   disabled?: boolean;
   autoStart?: boolean;
+  sharedMediaStream?: MediaStream | null;
 }
 
 export interface UseAudioRecorderReturn {
@@ -41,6 +42,7 @@ export function useAudioRecorder({
   isProcessing = false,
   disabled = false,
   autoStart = false,
+  sharedMediaStream = null,
 }: UseAudioRecorderOptions): UseAudioRecorderReturn {
   const [internalState, setInternalState] = useState<"IDLE" | "RECORDING" | "RECORDED" | "ERROR">("IDLE");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -60,11 +62,14 @@ export function useAudioRecorder({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const ownsStreamRef = useRef(false);
+  const mediaRequestRef = useRef<Promise<MediaStream> | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const currentBlobRef = useRef<Blob | null>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Clean up all resources
+  // Clean up recorder resources. A stream handed off from preflight belongs to
+  // the interview session and is released by its owner, not this question view.
   const cleanup = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -85,57 +90,82 @@ export function useAudioRecorder({
         // Ignore if already stopped
       }
     }
-    if (streamRef.current) {
+    if (streamRef.current && ownsStreamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
     }
-    if (mediaPreviewUrl) {
-      URL.revokeObjectURL(mediaPreviewUrl);
+    streamRef.current = null;
+    ownsStreamRef.current = false;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  const acquireMedia = useCallback(async (): Promise<MediaStream> => {
+    if (sharedMediaStream?.active) {
+      streamRef.current = sharedMediaStream;
+      ownsStreamRef.current = false;
+      return sharedMediaStream;
     }
-  }, [mediaPreviewUrl]);
+    if (streamRef.current?.active) return streamRef.current;
+    if (mediaRequestRef.current) return mediaRequestRef.current;
 
-  // Initialize media stream on mount and clean up on unmount
-  useEffect(() => {
-    let mounted = true;
-
-    async function initMedia() {
+    const request = (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        return await navigator.mediaDevices.getUserMedia({
           video: { width: 1280, height: 720 },
           audio: true,
         });
-        if (mounted) {
-          streamRef.current = stream;
-          setHasCamera(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        }
       } catch {
-        // Fallback to audio-only if camera is unavailable or denied
-        try {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (mounted) {
-            streamRef.current = audioStream;
-            setHasCamera(false);
-          }
-        } catch (audioErr) {
-          if (mounted) {
-            console.error("Hardware access denied:", audioErr);
-            setErrorMsg("Microphone access is required to record your answer.");
-            setInternalState("ERROR");
-          }
-        }
+        return await navigator.mediaDevices.getUserMedia({ audio: true });
       }
+    })();
+    mediaRequestRef.current = request;
+    try {
+      const stream = await request;
+      ownsStreamRef.current = true;
+      return stream;
+    } finally {
+      if (mediaRequestRef.current === request) mediaRequestRef.current = null;
     }
+  }, [sharedMediaStream]);
 
-    initMedia();
+  // Adopt the already-authorized preflight stream, or acquire one stream once.
+  useEffect(() => {
+    let mounted = true;
+    acquireMedia().then((stream) => {
+      if (!mounted) {
+        if (ownsStreamRef.current) stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      const cameraAvailable = stream.getVideoTracks().some((track) => track.readyState === "live" && track.enabled);
+      setHasCamera(cameraAvailable);
+      if (videoRef.current && cameraAvailable) videoRef.current.srcObject = stream;
+    }).catch((mediaError: unknown) => {
+      if (mounted) {
+        console.error("Hardware access denied:", mediaError);
+        setErrorMsg("Microphone access is required to record your answer.");
+        setInternalState("ERROR");
+      }
+    });
 
     return () => {
       mounted = false;
       cleanup();
     };
-  }, [cleanup]);
+  }, [acquireMedia, cleanup]);
+
+  useEffect(() => {
+    if (!mediaPreviewUrl) return;
+    return () => URL.revokeObjectURL(mediaPreviewUrl);
+  }, [mediaPreviewUrl]);
+
+  // The recorded-playback element replaces the live camera element while the
+  // user reviews an answer. Reattach the still-running session stream when they
+  // return to IDLE (Rerecord), after React has mounted the live video element.
+  useEffect(() => {
+    if (effectiveState === "RECORDED" || !hasCamera) return;
+    const stream = streamRef.current;
+    if (stream?.active && videoRef.current) videoRef.current.srcObject = stream;
+  }, [effectiveState, hasCamera]);
 
   // Check speech recognition support once on client
   useEffect(() => {
@@ -178,30 +208,13 @@ export function useAudioRecorder({
       setFinalTranscript("");
       setInterimTranscript("");
 
-      // Ensure media stream exists
-      if (!streamRef.current || !streamRef.current.active) {
-        try {
-          const mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 1280, height: 720 },
-            audio: true,
-          });
-          streamRef.current = mediaStream;
-          setHasCamera(true);
-        } catch {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          streamRef.current = audioStream;
-          setHasCamera(false);
-        }
-      }
-
-      const stream = streamRef.current;
-      if (!stream) {
-        setErrorMsg("Unable to access media stream.");
-        setInternalState("ERROR");
-        return;
-      }
-
-      const isVideoActive = hasCamera && stream.getVideoTracks().length > 0;
+      // Share an in-flight initialization request with the mount effect so
+      // auto-start cannot open a second camera/microphone stream concurrently.
+      const stream = await acquireMedia();
+      streamRef.current = stream;
+      const isVideoActive = stream.getVideoTracks().some((track) => track.readyState === "live" && track.enabled);
+      setHasCamera(isVideoActive);
+      if (isVideoActive && videoRef.current) videoRef.current.srcObject = stream;
       const mimeType = getSupportedMimeType(isVideoActive);
 
       const recorderOptions: MediaRecorderOptions = {};
@@ -389,10 +402,6 @@ export function useAudioRecorder({
     setInternalState("IDLE");
     setErrorMsg(null);
 
-    // Reattach camera stream to video tag if active
-    if (hasCamera && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-    }
   };
 
   const handleSubmit = () => {
